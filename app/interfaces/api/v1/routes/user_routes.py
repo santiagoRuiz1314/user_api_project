@@ -24,89 +24,32 @@ from app.domain.user.user_entity import User
 # Router para las rutas de usuario (requieren autenticación)
 router = APIRouter(tags=["users"])
 
-@router.post(
-    "",
-    response_model=UserCreateResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear nuevo usuario",
-    description="Crea un nuevo usuario (endpoint administrativo)"
-)
-async def create_user(
-    request: UserCreateRequest,
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Crea un nuevo usuario.
-    
-    **Requiere autenticación JWT.**
-    
-    - **email**: Email válido del usuario
-    - **password**: Contraseña (mínimo 6 caracteres)
-    
-    Este endpoint está protegido y requiere autenticación.
-    """
-    try:
-        return await user_controller.create_user(request)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
+# IMPORTANTE: Las rutas específicas deben ir ANTES que las rutas con parámetros
+# para evitar conflictos en FastAPI
 
 @router.get(
-    "/{user_id}",
+    "/me/profile",
     response_model=dict,
-    summary="Obtener usuario por ID",
-    description="Obtiene información de un usuario específico"
+    summary="Obtener perfil actual",
+    description="Obtiene la información del usuario autenticado"
 )
-async def get_user_by_id(
-    user_id: str,
+async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Obtiene un usuario por su ID.
+    Obtiene el perfil del usuario autenticado.
     
     **Requiere autenticación JWT.**
     
-    - **user_id**: ID único del usuario
-    
-    Los usuarios solo pueden acceder a su propia información,
-    salvo que tengan permisos administrativos.
+    Devuelve la información completa del usuario que está autenticado.
     """
-    try:
-        user = await user_controller.get_user_by_id(user_id, current_user)
-        user_response = user_to_response(user)
-        return {
-            "user": user_response,
-            "message": "Usuario obtenido exitosamente"
-        }
-    except ValueError as e:
-        error_message = str(e).lower()
-        if "no encontrado" in error_message or "not found" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        elif "permisos" in error_message or "permission" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    user = await user_controller.get_current_user_profile(current_user)
+    user_response = user_to_response(user)
+    return {
+        "user": user_response,
+        "message": "Perfil obtenido exitosamente"
+    }
 
 @router.get(
     "",
@@ -129,19 +72,60 @@ async def list_all_users(
     
     Devuelve información básica de todos los usuarios activos.
     """
-    try:
-        query = UserQueryRequest(skip=skip, limit=limit)
-        return await user_controller.list_users(query, current_user)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    query = UserQueryRequest(skip=skip, limit=limit)
+    return await user_controller.list_users(query, current_user)
+
+@router.post(
+    "",
+    response_model=UserCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear nuevo usuario",
+    description="Crea un nuevo usuario (endpoint administrativo)"
+)
+async def create_user(
+    request: UserCreateRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Crea un nuevo usuario.
+    
+    **Requiere autenticación JWT.**
+    
+    - **email**: Email válido del usuario
+    - **password**: Contraseña (mínimo 6 caracteres)
+    
+    Este endpoint está protegido y requiere autenticación.
+    """
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    return await user_controller.create_user(request)
+
+@router.get(
+    "/{user_id}",
+    response_model=dict,
+    summary="Obtener usuario por ID",
+    description="Obtiene información de un usuario específico"
+)
+async def get_user_by_id(
+    user_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Obtiene un usuario por su ID.
+    
+    **Requiere autenticación JWT.**
+    
+    - **user_id**: ID único del usuario
+    
+    Los usuarios pueden ver información básica de otros usuarios activos.
+    """
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    user = await user_controller.get_user_by_id(user_id, current_user)
+    user_response = user_to_response(user)
+    return {
+        "user": user_response,
+        "message": "Usuario obtenido exitosamente"
+    }
 
 @router.put(
     "/{user_id}",
@@ -166,30 +150,8 @@ async def update_user(
     Los usuarios solo pueden actualizar su propia información,
     salvo que tengan permisos administrativos.
     """
-    try:
-        return await user_controller.update_user(user_id, request, current_user)
-    except ValueError as e:
-        error_message = str(e).lower()
-        if "no encontrado" in error_message or "not found" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        elif "permisos" in error_message or "permission" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    return await user_controller.update_user(user_id, request, current_user)
 
 @router.delete(
     "/{user_id}",
@@ -212,56 +174,5 @@ async def delete_user(
     Los usuarios solo pueden eliminar su propia cuenta,
     salvo que tengan permisos administrativos.
     """
-    try:
-        return await user_controller.delete_user_soft(user_id, current_user)
-    except ValueError as e:
-        error_message = str(e).lower()
-        if "no encontrado" in error_message or "not found" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        elif "permisos" in error_message or "permission" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-# Endpoints adicionales para operaciones avanzadas
-@router.get(
-    "/me/profile",
-    response_model=dict,
-    summary="Obtener perfil actual",
-    description="Obtiene la información del usuario autenticado"
-)
-async def get_current_user_profile(
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Obtiene el perfil del usuario autenticado.
-    
-    **Requiere autenticación JWT.**
-    
-    Devuelve la información completa del usuario que está autenticado.
-    """
-    try:
-        user_response = user_to_response(current_user)
-        return {
-            "user": user_response,
-            "message": "Perfil obtenido exitosamente"
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    return await user_controller.delete_user_soft(user_id, current_user)

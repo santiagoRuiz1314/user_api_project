@@ -7,6 +7,14 @@ from app.domain.user.user_entity import User
 from app.infrastructure.auth.password_hashing import password_hasher
 from app.infrastructure.db.user_model import user_model
 from app.core.utils import validation_utils
+from app.core.exceptions import (
+    ValidationException,
+    UserNotFoundException,
+    AuthorizationException,
+    UserInactiveException,
+    ConflictException,
+    BusinessRuleException
+)
 
 class UpdateUserUseCase:
     """
@@ -39,30 +47,43 @@ class UpdateUserUseCase:
             Entidad User actualizada
             
         Raises:
-            ValueError: Si hay errores de validación o permisos
+            ValidationException: Si hay errores de validación
+            UserNotFoundException: Si el usuario no existe
+            AuthorizationException: Si no tiene permisos
+            UserInactiveException: Si el usuario está inactivo
+            ConflictException: Si el email ya está en uso
+            BusinessRuleException: Si viola reglas de negocio
         """
         # Validaciones básicas
         if not user_id or not user_id.strip():
-            raise ValueError("User ID es requerido")
+            raise ValidationException("User ID es requerido", "user_id")
         
         if not requesting_user_id or not requesting_user_id.strip():
-            raise ValueError("Requesting user ID es requerido")
+            raise ValidationException("Requesting user ID es requerido", "requesting_user_id")
         
         # Verificar que hay algo que actualizar
         if not new_email and not new_password:
-            raise ValueError("Debe proporcionar al menos un campo para actualizar")
+            raise BusinessRuleException("Debe proporcionar al menos un campo para actualizar", "update_fields_required")
+        
+        # Verificar que el usuario solicitante existe y está activo
+        requesting_user = await self.user_model.get_by_id(requesting_user_id)
+        if not requesting_user:
+            raise AuthorizationException("Usuario solicitante no encontrado")
+        
+        if not requesting_user.is_active:
+            raise UserInactiveException(requesting_user_id)
         
         # Verificar permisos: un usuario solo puede actualizar su propia información
         if user_id != requesting_user_id:
-            raise ValueError("No tienes permisos para actualizar este usuario")
+            raise AuthorizationException("No tienes permisos para actualizar este usuario")
         
         # Buscar usuario existente
         user = await self.user_model.get_by_id(user_id)
         if not user:
-            raise ValueError("Usuario no encontrado")
+            raise UserNotFoundException(user_id)
         
         if not user.is_active:
-            raise ValueError("Usuario inactivo")
+            raise UserInactiveException(user_id)
         
         # Validar y actualizar email si se proporciona
         if new_email:
@@ -86,18 +107,19 @@ class UpdateUserUseCase:
             new_email: Nuevo email
             
         Raises:
-            ValueError: Si el email es inválido o ya está en uso
+            ValidationException: Si el email es inválido
+            ConflictException: Si el email ya está en uso
         """
         # Validar formato del email
         if not self.validation_utils.is_valid_email(new_email):
-            raise ValueError("El formato del email es inválido")
+            raise ValidationException("El formato del email es inválido", "email")
         
         new_email = new_email.lower().strip()
         
         # Verificar que el email no esté en uso por otro usuario
         existing_user = await self.user_model.get_by_email(new_email)
         if existing_user and existing_user.id != user.id:
-            raise ValueError(f"El email {new_email} ya está en uso por otro usuario")
+            raise ConflictException(f"El email {new_email} ya está en uso por otro usuario", "User")
         
         # Actualizar email en la entidad
         user.update_email(new_email)
@@ -111,11 +133,11 @@ class UpdateUserUseCase:
             new_password: Nueva contraseña
             
         Raises:
-            ValueError: Si la contraseña no cumple los requisitos
+            ValidationException: Si la contraseña no cumple los requisitos
         """
         # Validar contraseña
         if not self.validation_utils.is_valid_password(new_password):
-            raise ValueError("La contraseña debe tener entre 6 y 128 caracteres")
+            raise ValidationException("La contraseña debe tener entre 6 y 128 caracteres", "password")
         
         # Generar nuevo hash
         new_password_hash = self.password_hasher.hash_password(new_password)
@@ -143,19 +165,22 @@ class UpdateUserUseCase:
             Entidad User actualizada
             
         Raises:
-            ValueError: Si hay errores de validación
+            ValidationException: Si hay errores de validación
+            UserNotFoundException: Si el usuario no existe
+            ConflictException: Si el email ya está en uso
+            BusinessRuleException: Si viola reglas de negocio
         """
         if not user_id or not user_id.strip():
-            raise ValueError("User ID es requerido")
+            raise ValidationException("User ID es requerido", "user_id")
         
         # Verificar que hay algo que actualizar
         if not new_email and not new_password and is_active is None:
-            raise ValueError("Debe proporcionar al menos un campo para actualizar")
+            raise BusinessRuleException("Debe proporcionar al menos un campo para actualizar", "update_fields_required")
         
         # Buscar usuario existente
         user = await self.user_model.get_by_id(user_id)
         if not user:
-            raise ValueError("Usuario no encontrado")
+            raise UserNotFoundException(user_id)
         
         # Actualizar email si se proporciona
         if new_email:
