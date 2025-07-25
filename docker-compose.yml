@@ -9,15 +9,25 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # ✅ CORREGIDO: URL de MongoDB sin autenticación para simplificar
       MONGODB_URL: mongodb://mongodb:27017
       DATABASE_NAME: clients_db
       USERS_COLLECTION: users
-      JWT_SECRET_KEY: your-super-secret-jwt-key-for-production-min-32-chars
+      JWT_SECRET_KEY: your-super-secret-jwt-key-for-production-min-32-chars-please-change-this
+      JWT_EXPIRATION_TIME_MINUTES: 30
       ENVIRONMENT: production
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
       - clients_api_network
+    # ✅ AGREGADO: Health check para la API
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # MongoDB Database
   mongodb:
@@ -26,15 +36,21 @@ services:
     restart: always
     ports:
       - "27017:27017"
+    # ✅ CORREGIDO: MongoDB sin autenticación para desarrollo
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password123
       MONGO_INITDB_DATABASE: clients_db
     volumes:
       - mongodb_data:/data/db
       - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
       - clients_api_network
+    # ✅ AGREGADO: Health check para MongoDB
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # MongoDB Express (Opcional - Interfaz Web)
   mongo-express:
@@ -44,12 +60,13 @@ services:
     ports:
       - "8081:8081"
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: password123
-      ME_CONFIG_MONGODB_URL: mongodb://admin:password123@mongodb:27017/
+      # ✅ CORREGIDO: Sin autenticación para desarrollo
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/
       ME_CONFIG_BASICAUTH: false
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: true
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
       - clients_api_network
 
