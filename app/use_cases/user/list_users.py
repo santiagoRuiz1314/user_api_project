@@ -5,6 +5,12 @@ Encapsula la lógica de negocio para obtener una lista paginada de usuarios.
 from typing import List, Tuple
 from app.domain.user.user_entity import User
 from app.infrastructure.db.user_model import user_model
+from app.core.exceptions import (
+    ValidationException,
+    AuthorizationException,
+    UserInactiveException,
+    UserNotFoundException
+)
 
 class ListUsersUseCase:
     """
@@ -33,22 +39,27 @@ class ListUsersUseCase:
             Tupla con (lista_usuarios, total_usuarios)
             
         Raises:
-            ValueError: Si hay errores de validación o permisos
+            ValidationException: Si hay errores de validación
+            AuthorizationException: Si no tiene permisos
+            UserInactiveException: Si el usuario está inactivo
         """
         # Validaciones básicas
         if not requesting_user_id or not requesting_user_id.strip():
-            raise ValueError("Requesting user ID es requerido")
+            raise ValidationException("Requesting user ID es requerido", "requesting_user_id")
         
         if skip < 0:
-            raise ValueError("Skip debe ser mayor o igual a 0")
+            raise ValidationException("Skip debe ser mayor o igual a 0", "skip")
         
         if limit < 1 or limit > 100:
-            raise ValueError("Limit debe estar entre 1 y 100")
+            raise ValidationException("Limit debe estar entre 1 y 100", "limit")
         
         # Verificar que el usuario solicitante existe y está activo
         requesting_user = await self.user_model.get_by_id(requesting_user_id)
-        if not requesting_user or not requesting_user.is_active:
-            raise ValueError("Usuario no autorizado")
+        if not requesting_user:
+            raise AuthorizationException("Usuario solicitante no encontrado")
+        
+        if not requesting_user.is_active:
+            raise UserInactiveException(requesting_user_id)
         
         # Por ahora, cualquier usuario autenticado puede listar usuarios
         # En una implementación más compleja, esto podría estar restringido a admins
@@ -60,7 +71,7 @@ class ListUsersUseCase:
         # En una implementación con roles, los admins podrían ver todos
         active_users = [user for user in users if user.is_active]
         
-        # Obtener total de usuarios activos
+        # Obtener total de usuarios activos usando la función optimizada
         total_users = await self._count_active_users()
         
         return active_users, total_users
@@ -81,12 +92,15 @@ class ListUsersUseCase:
             
         Returns:
             Tupla con (lista_usuarios, total_usuarios)
+            
+        Raises:
+            ValidationException: Si hay errores de validación
         """
         if skip < 0:
-            raise ValueError("Skip debe ser mayor o igual a 0")
+            raise ValidationException("Skip debe ser mayor o igual a 0", "skip")
         
         if limit < 1 or limit > 100:
-            raise ValueError("Limit debe estar entre 1 y 100")
+            raise ValidationException("Limit debe estar entre 1 y 100", "limit")
         
         # Obtener todos los usuarios
         all_users = await self.user_model.get_all(skip=skip, limit=limit)
@@ -102,16 +116,12 @@ class ListUsersUseCase:
     
     async def _count_active_users(self) -> int:
         """
-        Cuenta el número de usuarios activos.
+        Cuenta el número de usuarios activos usando la nueva función optimizada.
         
         Returns:
             Número de usuarios activos
         """
-        # En una implementación real con MongoDB, esto sería más eficiente
-        # con una query de agregación
-        all_users = await self.user_model.get_all(skip=0, limit=1000)  # Límite alto para contar
-        active_count = sum(1 for user in all_users if user.is_active)
-        return active_count
+        return await self.user_model.count_active()
 
 # Instancia del caso de uso
 list_users_use_case = ListUsersUseCase()

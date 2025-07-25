@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # API FastAPI
+  api:
+    build: .
+    container_name: clients_api
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_URL: mongodb://mongodb:27017
+      DATABASE_NAME: clients_db
+      USERS_COLLECTION: users
+      JWT_SECRET_KEY: your-super-secret-jwt-key-for-production-min-32-chars
+      ENVIRONMENT: production
+    depends_on:
+      - mongodb
+    networks:
+      - clients_api_network
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: clients_api_mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: clients_db
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - clients_api_network
+
+  # MongoDB Express (Opcional - Interfaz Web)
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: clients_api_mongo_express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password123
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password123@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+    depends_on:
+      - mongodb
+    networks:
+      - clients_api_network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  clients_api_network:
+    driver: bridge

@@ -21,9 +21,10 @@ class Settings:
     # CORS Configuration
     ALLOWED_ORIGINS: list = ["*"]  # En producción, especificar dominios exactos
     
-    # MongoDB Configuration (para futuro uso)
-    MONGODB_URL: Optional[str] = os.getenv("MONGODB_URL")
+    # MongoDB Configuration
+    MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
     DATABASE_NAME: str = os.getenv("DATABASE_NAME", "clients_db")
+    USERS_COLLECTION: str = os.getenv("USERS_COLLECTION", "users")
     
     # Environment
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")

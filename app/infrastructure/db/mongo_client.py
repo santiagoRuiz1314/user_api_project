@@ -1,56 +1,118 @@
 """
-Cliente Mock de MongoDB para desarrollo.
-Simula operaciones de base de datos en memoria hasta implementar MongoDB real.
+Cliente real de MongoDB usando Motor (driver asíncrono).
+Reemplaza el cliente mock con una implementación real de MongoDB.
 """
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+import logging
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
+from pymongo.errors import ServerSelectionTimeoutError, DuplicateKeyError
 from app.domain.user.user_entity import User
+from app.core.config import settings
 
-class MockMongoClient:
+logger = logging.getLogger(__name__)
+
+class MongoClient:
     """
-    Cliente mock que simula operaciones de MongoDB en memoria.
-    Será reemplazado por el cliente real de MongoDB posteriormente.
+    Cliente real de MongoDB para operaciones asíncronas.
+    Maneja conexiones y operaciones CRUD con la base de datos.
     """
     
     def __init__(self):
-        # Almacenamiento en memoria
-        self._users_collection: Dict[str, dict] = {}
+        self._client: Optional[AsyncIOMotorClient] = None
+        self._database: Optional[AsyncIOMotorDatabase] = None
+        self._users_collection: Optional[AsyncIOMotorCollection] = None
         self._connected = False
     
-    def connect(self) -> bool:
-        """Simula conexión a la base de datos."""
-        self._connected = True
-        return True
+    async def connect(self) -> bool:
+        """
+        Establece conexión con MongoDB.
+        
+        Returns:
+            True si la conexión es exitosa, False en caso contrario
+        """
+        try:
+            # Crear cliente de MongoDB
+            self._client = AsyncIOMotorClient(
+                settings.MONGODB_URL,
+                serverSelectionTimeoutMS=5000  # 5 segundos timeout
+            )
+            
+            # Verificar conexión
+            await self._client.admin.command('ping')
+            
+            # Configurar base de datos y colecciones
+            self._database = self._client[settings.DATABASE_NAME]
+            self._users_collection = self._database[settings.USERS_COLLECTION]
+            
+            # Crear índices
+            await self._create_indexes()
+            
+            self._connected = True
+            logger.info("✅ Conectado exitosamente a MongoDB")
+            return True
+            
+        except ServerSelectionTimeoutError:
+            logger.error("❌ No se pudo conectar a MongoDB: Timeout")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error al conectar a MongoDB: {e}")
+            return False
     
-    def disconnect(self) -> None:
-        """Simula desconexión de la base de datos."""
-        self._connected = False
+    async def disconnect(self) -> None:
+        """Cierra la conexión con MongoDB."""
+        if self._client:
+            self._client.close()
+            self._connected = False
+            logger.info("🔌 Desconectado de MongoDB")
     
     def is_connected(self) -> bool:
-        """Verifica si está conectado."""
-        return self._connected
+        """Verifica si está conectado a MongoDB."""
+        return self._connected and self._client is not None
+    
+    async def _create_indexes(self) -> None:
+        """Crea índices necesarios en las colecciones."""
+        try:
+            # Índice único en email
+            await self._users_collection.create_index("email", unique=True)
+            # Índice en is_active para consultas eficientes
+            await self._users_collection.create_index("is_active")
+            logger.info("✅ Índices creados exitosamente")
+        except Exception as e:
+            logger.warning(f"⚠️ Error al crear índices: {e}")
     
     # Operaciones de usuarios
-    def create_user(self, user: User) -> bool:
+    async def create_user(self, user: User) -> bool:
         """
-        Crea un nuevo usuario en la colección.
+        Crea un nuevo usuario en la base de datos.
         
         Args:
             user: Entidad User a crear
             
         Returns:
             True si se creó exitosamente
+            
+        Raises:
+            ConnectionError: Si no está conectado
+            ValueError: Si el usuario ya existe
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        if user.id in self._users_collection:
-            return False  # Usuario ya existe
-        
-        self._users_collection[user.id] = user.to_dict()
-        return True
+        try:
+            user_doc = user.to_dict()
+            await self._users_collection.insert_one(user_doc)
+            logger.info(f"✅ Usuario creado: {user.email}")
+            return True
+            
+        except DuplicateKeyError:
+            logger.warning(f"⚠️ Usuario ya existe: {user.email}")
+            raise ValueError(f"Usuario con email {user.email} ya existe")
+        except Exception as e:
+            logger.error(f"❌ Error al crear usuario: {e}")
+            raise RuntimeError(f"Error al crear usuario: {e}")
     
-    def get_user_by_id(self, user_id: str) -> Optional[User]:
+    async def get_user_by_id(self, user_id: str) -> Optional[User]:
         """
         Obtiene un usuario por su ID.
         
@@ -60,15 +122,22 @@ class MockMongoClient:
         Returns:
             Entidad User si existe, None en caso contrario
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        user_data = self._users_collection.get(user_id)
-        if user_data:
-            return User.from_dict(user_data)
-        return None
+        try:
+            user_doc = await self._users_collection.find_one({"id": user_id})
+            if user_doc:
+                # Remover el _id de MongoDB antes de crear la entidad
+                user_doc.pop('_id', None)
+                return User.from_dict(user_doc)
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Error al obtener usuario por ID {user_id}: {e}")
+            return None
     
-    def get_user_by_email(self, email: str) -> Optional[User]:
+    async def get_user_by_email(self, email: str) -> Optional[User]:
         """
         Obtiene un usuario por su email.
         
@@ -78,16 +147,23 @@ class MockMongoClient:
         Returns:
             Entidad User si existe, None en caso contrario
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        email = email.lower().strip()
-        for user_data in self._users_collection.values():
-            if user_data["email"] == email:
-                return User.from_dict(user_data)
-        return None
+        try:
+            email = email.lower().strip()
+            user_doc = await self._users_collection.find_one({"email": email})
+            if user_doc:
+                # Remover el _id de MongoDB antes de crear la entidad
+                user_doc.pop('_id', None)
+                return User.from_dict(user_doc)
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Error al obtener usuario por email {email}: {e}")
+            return None
     
-    def get_all_users(self, skip: int = 0, limit: int = 100) -> List[User]:
+    async def get_all_users(self, skip: int = 0, limit: int = 100) -> List[User]:
         """
         Obtiene todos los usuarios con paginación.
         
@@ -98,15 +174,25 @@ class MockMongoClient:
         Returns:
             Lista de entidades User
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        users_data = list(self._users_collection.values())
-        paginated_data = users_data[skip:skip + limit]
-        
-        return [User.from_dict(data) for data in paginated_data]
+        try:
+            cursor = self._users_collection.find({}).skip(skip).limit(limit)
+            users = []
+            
+            async for user_doc in cursor:
+                # Remover el _id de MongoDB antes de crear la entidad
+                user_doc.pop('_id', None)
+                users.append(User.from_dict(user_doc))
+            
+            return users
+            
+        except Exception as e:
+            logger.error(f"❌ Error al obtener usuarios: {e}")
+            return []
     
-    def update_user(self, user: User) -> bool:
+    async def update_user(self, user: User) -> bool:
         """
         Actualiza un usuario existente.
         
@@ -116,17 +202,30 @@ class MockMongoClient:
         Returns:
             True si se actualizó exitosamente
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        if user.id not in self._users_collection:
-            return False  # Usuario no existe
-        
-        user.updated_at = datetime.utcnow()
-        self._users_collection[user.id] = user.to_dict()
-        return True
+        try:
+            user.updated_at = datetime.utcnow()
+            user_doc = user.to_dict()
+            
+            result = await self._users_collection.replace_one(
+                {"id": user.id},
+                user_doc
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"✅ Usuario actualizado: {user.email}")
+                return True
+            else:
+                logger.warning(f"⚠️ Usuario no encontrado para actualizar: {user.id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error al actualizar usuario {user.id}: {e}")
+            return False
     
-    def delete_user(self, user_id: str) -> bool:
+    async def delete_user(self, user_id: str) -> bool:
         """
         Elimina un usuario (hard delete).
         
@@ -136,33 +235,76 @@ class MockMongoClient:
         Returns:
             True si se eliminó exitosamente
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        if user_id not in self._users_collection:
-            return False  # Usuario no existe
-        
-        del self._users_collection[user_id]
-        return True
+        try:
+            result = await self._users_collection.delete_one({"id": user_id})
+            
+            if result.deleted_count > 0:
+                logger.info(f"✅ Usuario eliminado: {user_id}")
+                return True
+            else:
+                logger.warning(f"⚠️ Usuario no encontrado para eliminar: {user_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error al eliminar usuario {user_id}: {e}")
+            return False
     
-    def count_users(self) -> int:
+    async def count_users(self) -> int:
         """
         Cuenta el total de usuarios.
         
         Returns:
             Número total de usuarios
         """
-        if not self._connected:
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        return len(self._users_collection)
+        try:
+            count = await self._users_collection.count_documents({})
+            return count
+            
+        except Exception as e:
+            logger.error(f"❌ Error al contar usuarios: {e}")
+            return 0
     
-    def clear_all_users(self) -> None:
-        """Limpia todos los usuarios (útil para testing)."""
-        if not self._connected:
+    async def count_active_users(self) -> int:
+        """
+        Cuenta el total de usuarios activos.
+        
+        Returns:
+            Número total de usuarios activos
+        """
+        if not self.is_connected():
             raise ConnectionError("Database not connected")
         
-        self._users_collection.clear()
+        try:
+            count = await self._users_collection.count_documents({"is_active": True})
+            return count
+            
+        except Exception as e:
+            logger.error(f"❌ Error al contar usuarios activos: {e}")
+            return 0
+    
+    async def clear_all_users(self) -> None:
+        """
+        Limpia todos los usuarios (útil para testing).
+        ⚠️ USAR SOLO EN DESARROLLO/TESTING
+        """
+        if not self.is_connected():
+            raise ConnectionError("Database not connected")
+        
+        if settings.ENVIRONMENT == "production":
+            raise RuntimeError("No se puede limpiar usuarios en producción")
+        
+        try:
+            await self._users_collection.delete_many({})
+            logger.warning("🗑️ Todos los usuarios han sido eliminados")
+            
+        except Exception as e:
+            logger.error(f"❌ Error al limpiar usuarios: {e}")
 
-# Instancia global del cliente mock
-mongo_client = MockMongoClient()
+# Instancia global del cliente MongoDB
+mongo_client = MongoClient()

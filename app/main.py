@@ -31,20 +31,27 @@ async def lifespan(app: FastAPI):
     # Startup: Conectar a la base de datos
     logger.info("🚀 Iniciando aplicación...")
     try:
-        mongo_client.connect()
-        logger.info("✅ Conectado a la base de datos (Mock)")
+        success = await mongo_client.connect()
+        if success:
+            logger.info("✅ Conectado exitosamente a MongoDB")
+            logger.info(f"📊 Base de datos: {settings.DATABASE_NAME}")
+            logger.info(f"🔗 URL: {settings.MONGODB_URL}")
+        else:
+            logger.error("❌ No se pudo conectar a MongoDB")
+            logger.error("⚠️  La aplicación continuará pero las operaciones de BD fallarán")
     except Exception as e:
-        logger.error(f"❌ Error al conectar a la base de datos: {e}")
+        logger.error(f"❌ Error al conectar a MongoDB: {e}")
+        logger.error("⚠️  La aplicación continuará pero las operaciones de BD fallarán")
     
     yield
     
     # Shutdown: Cerrar conexiones
     logger.info("🛑 Cerrando aplicación...")
     try:
-        mongo_client.disconnect()
-        logger.info("✅ Desconectado de la base de datos")
+        await mongo_client.disconnect()
+        logger.info("✅ Desconectado de MongoDB")
     except Exception as e:
-        logger.error(f"❌ Error al desconectar de la base de datos: {e}")
+        logger.error(f"❌ Error al desconectar de MongoDB: {e}")
 
 # Crear instancia de FastAPI
 app = FastAPI(
@@ -73,12 +80,14 @@ app = FastAPI(
     * **🗑️ Soft Delete**: Desactivación de usuarios sin pérdida de datos
     * **🚨 Manejo de errores**: Sistema centralizado de excepciones
     * **📖 Documentación**: OpenAPI/Swagger completa
+    * **🍃 MongoDB**: Base de datos NoSQL para almacenamiento persistente
     
     ### 🔗 Endpoints principales
     
     #### Autenticación (público)
     - `POST /api/v1/auth/register` - Registrar nuevo usuario
     - `POST /api/v1/auth/login` - Iniciar sesión
+    - `GET /api/v1/auth/validate-token` - Validar token JWT
     
     #### Usuarios (requiere autenticación)
     - `POST /api/v1/users` - Crear usuario
@@ -86,6 +95,7 @@ app = FastAPI(
     - `GET /api/v1/users` - Listar usuarios
     - `PUT /api/v1/users/{id}` - Actualizar usuario
     - `DELETE /api/v1/users/{id}` - Eliminar usuario
+    - `GET /api/v1/users/me/profile` - Obtener perfil propio
     
     ### 🔑 Autenticación
     
@@ -112,6 +122,13 @@ app = FastAPI(
     - `409` - Conflicto (ej: email ya existe)
     - `422` - Error de reglas de negocio
     - `500` - Error interno del servidor
+    
+    ### 🏭 Base de datos
+    
+    - **MongoDB**: Base de datos NoSQL
+    - **Motor**: Driver asíncrono para Python
+    - **Índices optimizados**: Para consultas eficientes
+    - **Conexión persistente**: Manejo automático de conexiones
     """,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
     docs_url="/docs",
@@ -139,8 +156,6 @@ app.include_router(
 )
 
 # Middleware para logging de requests
-import time
-
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Middleware para logging de todas las requests."""
@@ -175,6 +190,11 @@ async def root():
         "version": settings.PROJECT_VERSION,
         "architecture": "Clean Architecture",
         "status": "active",
+        "database": {
+            "type": "MongoDB",
+            "status": "connected" if mongo_client.is_connected() else "disconnected",
+            "database": settings.DATABASE_NAME
+        },
         "links": {
             "documentation": "/docs",
             "redoc": "/redoc",
@@ -185,6 +205,7 @@ async def root():
         "authentication": {
             "register": f"{settings.API_V1_PREFIX}/auth/register",
             "login": f"{settings.API_V1_PREFIX}/auth/login",
+            "validate": f"{settings.API_V1_PREFIX}/auth/validate-token",
             "type": "JWT Bearer Token"
         }
     }
@@ -202,6 +223,17 @@ async def status():
     
     Incluye estado de conexiones, configuración y métricas básicas.
     """
+    # Obtener estadísticas de la base de datos si está conectada
+    db_stats = {}
+    if mongo_client.is_connected():
+        try:
+            db_stats = {
+                "total_users": await mongo_client.count_users(),
+                "active_users": await mongo_client.count_active_users(),
+            }
+        except Exception as e:
+            db_stats = {"error": f"No se pudieron obtener estadísticas: {str(e)}"}
+    
     return {
         "application": {
             "name": settings.PROJECT_NAME,
@@ -212,7 +244,11 @@ async def status():
         "services": {
             "database": {
                 "status": "connected" if mongo_client.is_connected() else "disconnected",
-                "type": "Mock MongoDB (development)"
+                "type": "MongoDB",
+                "url": settings.MONGODB_URL,
+                "database": settings.DATABASE_NAME,
+                "collection": settings.USERS_COLLECTION,
+                "statistics": db_stats
             },
             "authentication": {
                 "status": "active",
