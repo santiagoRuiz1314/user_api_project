@@ -1,7 +1,21 @@
-fastapi
-uvicorn[standard]
-pydantic
-python-jose
-bcrypt
-PyJWT
-pydantic[email]
+# FastAPI y servidor
+fastapi==0.103.2
+uvicorn[standard]==0.23.2
+
+# Validación y serialización
+pydantic==1.10.13  # Última versión estable de Pydantic v1 compatible con más herramientas
+
+# Autenticación y seguridad
+PyJWT==2.8.0
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.2
+passlib[bcrypt]==1.7.4
+
+# Utilidades
+python-multipart==0.0.6
+email-validator==1.3.1  # Versión estable y no yankeada
+
+# Desarrollo y testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2

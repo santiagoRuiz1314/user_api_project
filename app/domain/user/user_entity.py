@@ -44,9 +44,37 @@ class User:
         )
 
     def deactivate(self):
+        """Desactiva el usuario (soft delete)"""
         self.is_active = False
         self.updated_at = date_utils.get_current_utc()
 
     def activate(self):
+        """Activa el usuario"""
         self.is_active = True
         self.updated_at = date_utils.get_current_utc()
+
+    def update_email(self, new_email: str):
+        """Actualiza el email del usuario"""
+        if not new_email or not new_email.strip():
+            raise ValueError("Email no puede estar vacío")
+        
+        self.email = string_utils.normalize_email(new_email)
+        self.updated_at = date_utils.get_current_utc()
+
+    def update_password_hash(self, new_password_hash: str):
+        """Actualiza el hash de la contraseña"""
+        if not new_password_hash:
+            raise ValueError("Password hash no puede estar vacío")
+        
+        self.password_hash = new_password_hash
+        self.updated_at = date_utils.get_current_utc()
+
+    def to_public_dict(self) -> dict:
+        """Devuelve datos públicos del usuario (sin password_hash)"""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat()
+        }

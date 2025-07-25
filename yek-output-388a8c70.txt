@@ -106,6 +106,393 @@ class Settings:
 
 # Instancia global de configuración
 settings = Settings()
+>>>> app/core/exception_handlers.py
+"""
+Manejadores de excepciones centralizados.
+Convierte excepciones del dominio en respuestas HTTP apropiadas.
+"""
+from fastapi import Request, HTTPException, status
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
+import logging
+from datetime import datetime
+from app.core.exceptions import (
+    DomainException,
+    ValidationException,
+    AuthenticationException,
+    AuthorizationException,
+    NotFoundException,
+    ConflictException,
+    BusinessRuleException,
+    InfrastructureException,
+    UserAlreadyExistsException,
+    UserNotFoundException,
+    UserInactiveException,
+    InvalidCredentialsException,
+    TokenExpiredException,
+    InvalidTokenException
+)
+
+# Configurar logger
+logger = logging.getLogger(__name__)
+
+class ExceptionHandler:
+    """Manejador centralizado de excepciones."""
+    
+    @staticmethod
+    def create_error_response(
+        status_code: int,
+        message: str,
+        error_code: str = None,
+        details: dict = None,
+        path: str = None
+    ) -> JSONResponse:
+        """
+        Crea una respuesta de error estándar.
+        
+        Args:
+            status_code: Código de estado HTTP
+            message: Mensaje de error
+            error_code: Código de error interno
+            details: Detalles adicionales del error
+            path: Ruta donde ocurrió el error
+            
+        Returns:
+            JSONResponse con formato estándar de error
+        """
+        error_data = {
+            "error": True,
+            "message": message,
+            "status_code": status_code,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        
+        if error_code:
+            error_data["error_code"] = error_code
+        
+        if details:
+            error_data["details"] = details
+        
+        if path:
+            error_data["path"] = path
+        
+        return JSONResponse(
+            status_code=status_code,
+            content=error_data
+        )
+
+# Manejadores específicos para cada tipo de excepción
+async def domain_exception_handler(request: Request, exc: DomainException):
+    """Manejador para excepciones generales del dominio."""
+    logger.warning(f"Domain exception: {exc.message}")
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        message=exc.message,
+        error_code=exc.error_code,
+        path=str(request.url)
+    )
+
+async def validation_exception_handler(request: Request, exc: ValidationException):
+    """Manejador para errores de validación."""
+    logger.info(f"Validation error: {exc.message}")
+    
+    details = {}
+    if exc.field:
+        details["field"] = exc.field
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        message=exc.message,
+        error_code=exc.error_code,
+        details=details if details else None,
+        path=str(request.url)
+    )
+
+async def authentication_exception_handler(request: Request, exc: AuthenticationException):
+    """Manejador para errores de autenticación."""
+    logger.info(f"Authentication error: {exc.message}")
+    
+    headers = {"WWW-Authenticate": "Bearer"}
+    
+    response = ExceptionHandler.create_error_response(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        message=exc.message,
+        error_code=exc.error_code,
+        path=str(request.url)
+    )
+    
+    response.headers.update(headers)
+    return response
+
+async def authorization_exception_handler(request: Request, exc: AuthorizationException):
+    """Manejador para errores de autorización."""
+    logger.warning(f"Authorization error: {exc.message}")
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_403_FORBIDDEN,
+        message=exc.message,
+        error_code=exc.error_code,
+        path=str(request.url)
+    )
+
+async def not_found_exception_handler(request: Request, exc: NotFoundException):
+    """Manejador para recursos no encontrados."""
+    logger.info(f"Resource not found: {exc.message}")
+    
+    details = {}
+    if exc.resource:
+        details["resource"] = exc.resource
+    if exc.identifier:
+        details["identifier"] = exc.identifier
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_404_NOT_FOUND,
+        message=exc.message,
+        error_code=exc.error_code,
+        details=details if details else None,
+        path=str(request.url)
+    )
+
+async def conflict_exception_handler(request: Request, exc: ConflictException):
+    """Manejador para conflictos de recursos."""
+    logger.info(f"Resource conflict: {exc.message}")
+    
+    details = {}
+    if exc.resource:
+        details["resource"] = exc.resource
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_409_CONFLICT,
+        message=exc.message,
+        error_code=exc.error_code,
+        details=details if details else None,
+        path=str(request.url)
+    )
+
+async def business_rule_exception_handler(request: Request, exc: BusinessRuleException):
+    """Manejador para violaciones de reglas de negocio."""
+    logger.warning(f"Business rule violation: {exc.message}")
+    
+    details = {}
+    if exc.rule:
+        details["rule"] = exc.rule
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        message=exc.message,
+        error_code=exc.error_code,
+        details=details if details else None,
+        path=str(request.url)
+    )
+
+async def infrastructure_exception_handler(request: Request, exc: InfrastructureException):
+    """Manejador para errores de infraestructura."""
+    logger.error(f"Infrastructure error: {exc.message}")
+    
+    details = {}
+    if exc.component:
+        details["component"] = exc.component
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        message="Error interno del sistema",  # No exponer detalles internos
+        error_code=exc.error_code,
+        details=details if details else None,
+        path=str(request.url)
+    )
+
+# Manejadores para excepciones estándar de FastAPI
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Manejador para excepciones HTTP de FastAPI."""
+    logger.info(f"HTTP exception: {exc.detail}")
+    
+    return ExceptionHandler.create_error_response(
+        status_code=exc.status_code,
+        message=exc.detail,
+        path=str(request.url)
+    )
+
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Manejador para errores de validación de requests."""
+    logger.info(f"Request validation error: {exc.errors()}")
+    
+    # Formatear errores de validación de Pydantic
+    errors = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error["loc"])
+        errors.append({
+            "field": field,
+            "message": error["msg"],
+            "type": error["type"]
+        })
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        message="Datos de entrada inválidos",
+        error_code="VALIDATION_ERROR",
+        details={"validation_errors": errors},
+        path=str(request.url)
+    )
+
+async def general_exception_handler(request: Request, exc: Exception):
+    """Manejador para excepciones generales no capturadas."""
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    
+    return ExceptionHandler.create_error_response(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        message="Error interno del servidor",
+        error_code="INTERNAL_ERROR",
+        path=str(request.url)
+    )
+
+# Diccionario con todos los manejadores
+EXCEPTION_HANDLERS = {
+    # Excepciones del dominio
+    ValidationException: validation_exception_handler,
+    AuthenticationException: authentication_exception_handler,
+    AuthorizationException: authorization_exception_handler,
+    NotFoundException: not_found_exception_handler,
+    ConflictException: conflict_exception_handler,
+    BusinessRuleException: business_rule_exception_handler,
+    InfrastructureException: infrastructure_exception_handler,
+    DomainException: domain_exception_handler,
+    
+    # Excepciones específicas de usuarios
+    UserAlreadyExistsException: conflict_exception_handler,
+    UserNotFoundException: not_found_exception_handler,
+    UserInactiveException: business_rule_exception_handler,
+    InvalidCredentialsException: authentication_exception_handler,
+    TokenExpiredException: authentication_exception_handler,
+    InvalidTokenException: authentication_exception_handler,
+    
+    # Excepciones estándar de FastAPI
+    HTTPException: http_exception_handler,
+    RequestValidationError: request_validation_exception_handler,
+    
+    # Excepción general
+    Exception: general_exception_handler,
+}
+>>>> app/core/exceptions.py
+"""
+Excepciones personalizadas para la aplicación.
+Define excepciones específicas del dominio para mejor manejo de errores.
+"""
+
+class DomainException(Exception):
+    """Excepción base para errores del dominio."""
+    
+    def __init__(self, message: str, error_code: str = None):
+        super().__init__(message)
+        self.message = message
+        self.error_code = error_code
+
+
+class ValidationException(DomainException):
+    """Excepción para errores de validación."""
+    
+    def __init__(self, message: str, field: str = None):
+        super().__init__(message, "VALIDATION_ERROR")
+        self.field = field
+
+
+class AuthenticationException(DomainException):
+    """Excepción para errores de autenticación."""
+    
+    def __init__(self, message: str = "Credenciales inválidas"):
+        super().__init__(message, "AUTHENTICATION_ERROR")
+
+
+class AuthorizationException(DomainException):
+    """Excepción para errores de autorización."""
+    
+    def __init__(self, message: str = "No tienes permisos para esta operación"):
+        super().__init__(message, "AUTHORIZATION_ERROR")
+
+
+class NotFoundException(DomainException):
+    """Excepción para recursos no encontrados."""
+    
+    def __init__(self, resource: str, identifier: str = None):
+        if identifier:
+            message = f"{resource} con ID '{identifier}' no encontrado"
+        else:
+            message = f"{resource} no encontrado"
+        super().__init__(message, "NOT_FOUND")
+        self.resource = resource
+        self.identifier = identifier
+
+
+class ConflictException(DomainException):
+    """Excepción para conflictos de recursos."""
+    
+    def __init__(self, message: str, resource: str = None):
+        super().__init__(message, "CONFLICT")
+        self.resource = resource
+
+
+class BusinessRuleException(DomainException):
+    """Excepción para violaciones de reglas de negocio."""
+    
+    def __init__(self, message: str, rule: str = None):
+        super().__init__(message, "BUSINESS_RULE_VIOLATION")
+        self.rule = rule
+
+
+class InfrastructureException(DomainException):
+    """Excepción para errores de infraestructura."""
+    
+    def __init__(self, message: str, component: str = None):
+        super().__init__(message, "INFRASTRUCTURE_ERROR")
+        self.component = component
+
+
+# Excepciones específicas del dominio de usuarios
+class UserAlreadyExistsException(ConflictException):
+    """Excepción cuando un usuario ya existe."""
+    
+    def __init__(self, email: str):
+        super().__init__(f"Usuario con email '{email}' ya existe", "User")
+        self.email = email
+
+
+class UserNotFoundException(NotFoundException):
+    """Excepción cuando un usuario no se encuentra."""
+    
+    def __init__(self, identifier: str = None):
+        super().__init__("Usuario", identifier)
+
+
+class UserInactiveException(BusinessRuleException):
+    """Excepción cuando un usuario está inactivo."""
+    
+    def __init__(self, user_id: str = None):
+        message = "Usuario inactivo"
+        if user_id:
+            message = f"Usuario con ID '{user_id}' está inactivo"
+        super().__init__(message, "user_active_required")
+
+
+class InvalidCredentialsException(AuthenticationException):
+    """Excepción para credenciales inválidas."""
+    
+    def __init__(self):
+        super().__init__("Email o contraseña incorrectos")
+
+
+class TokenExpiredException(AuthenticationException):
+    """Excepción para tokens expirados."""
+    
+    def __init__(self):
+        super().__init__("Token expirado")
+
+
+class InvalidTokenException(AuthenticationException):
+    """Excepción para tokens inválidos."""
+    
+    def __init__(self):
+        super().__init__("Token inválido")
 >>>> app/core/security.py
 """
 Configuración de seguridad y autenticación JWT.
@@ -600,13 +987,40 @@ class User:
         )
 
     def deactivate(self):
+        """Desactiva el usuario (soft delete)"""
         self.is_active = False
         self.updated_at = date_utils.get_current_utc()
 
     def activate(self):
+        """Activa el usuario"""
         self.is_active = True
         self.updated_at = date_utils.get_current_utc()
 
+    def update_email(self, new_email: str):
+        """Actualiza el email del usuario"""
+        if not new_email or not new_email.strip():
+            raise ValueError("Email no puede estar vacío")
+        
+        self.email = string_utils.normalize_email(new_email)
+        self.updated_at = date_utils.get_current_utc()
+
+    def update_password_hash(self, new_password_hash: str):
+        """Actualiza el hash de la contraseña"""
+        if not new_password_hash:
+            raise ValueError("Password hash no puede estar vacío")
+        
+        self.password_hash = new_password_hash
+        self.updated_at = date_utils.get_current_utc()
+
+    def to_public_dict(self) -> dict:
+        """Devuelve datos públicos del usuario (sin password_hash)"""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat()
+        }
 >>>> app/infrastructure/auth/jwt_handler.py
 """
 Manejador de JWT para autenticación.
@@ -1100,11 +1514,19 @@ Incluye todas las rutas de la versión 1 de la API.
 """
 from fastapi import APIRouter
 from app.interfaces.api.v1.routes.user_routes import router as user_router
+from app.interfaces.api.v1.routes.auth_routes import router as auth_router
 
 # Router principal para la API v1
 api_router = APIRouter()
 
-# Incluir rutas de usuarios
+# Incluir rutas de autenticación (sin autenticación requerida)
+api_router.include_router(
+    auth_router,
+    prefix="/auth",
+    tags=["authentication"]
+)
+
+# Incluir rutas de usuarios (requieren autenticación)
 api_router.include_router(
     user_router,
     prefix="/users",
@@ -1127,7 +1549,11 @@ async def health_check():
     return {
         "status": "healthy",
         "message": "API is running",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "services": {
+            "database": "connected",
+            "authentication": "active"
+        }
     }
 
 # Endpoint de información de la API
@@ -1141,39 +1567,175 @@ async def api_info():
     """
     Proporciona información general sobre la API.
     
-    Returns metadatos de la API como versión, descripción, etc.
+    Returns metadatos de la API como versión, descripción, endpoints disponibles, etc.
     """
     return {
         "name": "Clients API",
         "version": "1.0.0",
-        "description": "API para gestión de usuarios con autenticación JWT",
+        "description": "API REST para gestión de usuarios con autenticación JWT",
+        "architecture": "Clean Architecture",
         "features": [
-            "Registro de usuarios",
+            "Registro y autenticación de usuarios",
+            "CRUD completo de usuarios",
             "Autenticación JWT",
-            "CRUD de usuarios",
-            "Paginación",
-            "Soft delete"
+            "Paginación en listados",
+            "Soft delete de usuarios",
+            "Validación con Pydantic",
+            "Documentación OpenAPI"
         ],
-        "documentation": "/docs",
+        "endpoints": {
+            "authentication": [
+                "POST /api/v1/auth/login",
+                "POST /api/v1/auth/register"
+            ],
+            "users": [
+                "POST /api/v1/users",
+                "GET /api/v1/users/{id}",
+                "GET /api/v1/users",
+                "PUT /api/v1/users/{id}",
+                "DELETE /api/v1/users/{id}"
+            ],
+            "utility": [
+                "GET /api/v1/health",
+                "GET /api/v1/info"
+            ]
+        },
+        "authentication": {
+            "type": "JWT Bearer Token",
+            "header": "Authorization: Bearer <token>",
+            "expiration": "30 minutes"
+        },
+        "documentation": {
+            "swagger": "/docs",
+            "redoc": "/redoc",
+            "openapi": "/api/v1/openapi.json"
+        },
         "status": "active"
+    }
+>>>> app/interfaces/api/v1/routes/auth_routes.py
+"""
+Rutas de autenticación.
+Maneja login, registro y operaciones de autenticación.
+"""
+from fastapi import APIRouter, Depends, status
+from app.controllers.user_controller import user_controller
+from app.interfaces.schemas.user_request import (
+    UserCreateRequest,
+    UserLoginRequest
+)
+from app.interfaces.schemas.user_response import (
+    UserCreateResponse,
+    UserLoginResponse,
+    ErrorResponse,
+    user_to_response
+)
+from app.core.security import get_current_active_user
+from app.core.exceptions import (
+    ValidationException,
+    AuthenticationException,
+    ConflictException,
+    InfrastructureException
+)
+
+# Router para autenticación
+router = APIRouter(tags=["authentication"])
+
+@router.post(
+    "/login",
+    response_model=UserLoginResponse,
+    summary="Iniciar sesión",
+    description="Autentica un usuario con email y contraseña, devuelve un token JWT",
+    responses={
+        200: {"description": "Login exitoso", "model": UserLoginResponse},
+        401: {"description": "Credenciales inválidas"},
+        400: {"description": "Datos de entrada inválidos"},
+        422: {"description": "Usuario inactivo"},
+        500: {"description": "Error interno del servidor"}
+    }
+)
+async def login(request: UserLoginRequest):
+    """
+    Autentica un usuario con email y contraseña.
+    
+    - **email**: Email del usuario registrado
+    - **password**: Contraseña del usuario
+    
+    Devuelve un token JWT para autenticación en futuras requests.
+    
+    **Nota**: Las excepciones se manejan automáticamente por el sistema centralizado.
+    """
+    # Las excepciones específicas del dominio se propagan automáticamente
+    # y son manejadas por el sistema centralizado de exception handlers
+    result = await user_controller.login_user(request)
+    return result
+
+@router.post(
+    "/register",
+    response_model=UserCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar nuevo usuario",
+    description="Crea una nueva cuenta de usuario",
+    responses={
+        201: {"description": "Usuario creado exitosamente", "model": UserCreateResponse},
+        400: {"description": "Datos de entrada inválidos"},
+        409: {"description": "Usuario ya existe"},
+        500: {"description": "Error interno del servidor"}
+    }
+)
+async def register(request: UserCreateRequest):
+    """
+    Registra un nuevo usuario.
+    
+    - **email**: Email válido y único
+    - **password**: Contraseña (mínimo 6 caracteres)
+    
+    Crea el usuario y devuelve la información básica (sin contraseña).
+    
+    **Nota**: Las excepciones se manejan automáticamente por el sistema centralizado.
+    """
+    # Las excepciones específicas del dominio se propagan automáticamente
+    # y son manejadas por el sistema centralizado de exception handlers
+    result = await user_controller.create_user(request)
+    return result
+
+@router.get(
+    "/validate-token",
+    summary="Validar token",
+    description="Valida si un token JWT es válido",
+    responses={
+        200: {"description": "Token válido"},
+        401: {"description": "Token inválido o expirado"}
+    }
+)
+async def validate_token(current_user = Depends(get_current_active_user)):
+    """
+    Valida el token JWT del usuario autenticado.
+    
+    **Requiere autenticación JWT.**
+    
+    Endpoint útil para verificar si un token sigue siendo válido.
+    """
+    user_response = user_to_response(current_user)
+    return {
+        "valid": True,
+        "user": user_response,
+        "message": "Token válido"
     }
 >>>> app/interfaces/api/v1/routes/user_routes.py
 """
-Rutas de la API para operaciones de usuario.
-Define los endpoints REST para el manejo de usuarios.
+Rutas de la API para operaciones CRUD de usuarios.
+Define los endpoints REST para el manejo de usuarios autenticados.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List
 from app.controllers.user_controller import user_controller
 from app.interfaces.schemas.user_request import (
     UserCreateRequest,
-    UserLoginRequest,
     UserUpdateRequest,
     UserQueryRequest
 )
 from app.interfaces.schemas.user_response import (
     UserCreateResponse,
-    UserLoginResponse,
     UserUpdateResponse,
     UserDeleteResponse,
     UserListResponse,
@@ -1183,24 +1745,29 @@ from app.interfaces.schemas.user_response import (
 from app.core.security import get_current_active_user
 from app.domain.user.user_entity import User
 
-# Router para las rutas de usuario
-router = APIRouter(prefix="/users", tags=["users"])
+# Router para las rutas de usuario (requieren autenticación)
+router = APIRouter(tags=["users"])
 
 @router.post(
-    "/register",
+    "",
     response_model=UserCreateResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Registrar nuevo usuario",
-    description="Crea una nueva cuenta de usuario con email y contraseña"
+    summary="Crear nuevo usuario",
+    description="Crea un nuevo usuario (endpoint administrativo)"
 )
-async def register_user(request: UserCreateRequest):
+async def create_user(
+    request: UserCreateRequest,
+    current_user: User = Depends(get_current_active_user)
+):
     """
-    Registra un nuevo usuario.
+    Crea un nuevo usuario.
+    
+    **Requiere autenticación JWT.**
     
     - **email**: Email válido del usuario
     - **password**: Contraseña (mínimo 6 caracteres)
     
-    Returns el usuario creado con su información básica.
+    Este endpoint está protegido y requiere autenticación.
     """
     try:
         return await user_controller.create_user(request)
@@ -1215,65 +1782,11 @@ async def register_user(request: UserCreateRequest):
             detail="Error interno del servidor"
         )
 
-@router.post(
-    "/login",
-    response_model=UserLoginResponse,
-    summary="Iniciar sesión",
-    description="Autentica un usuario y devuelve un token JWT"
-)
-async def login_user(request: UserLoginRequest):
-    """
-    Autentica un usuario.
-    
-    - **email**: Email del usuario registrado
-    - **password**: Contraseña del usuario
-    
-    Returns un token JWT para futuras peticiones autenticadas.
-    """
-    try:
-        return await user_controller.login_user(request)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e)
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
-@router.get(
-    "/me",
-    response_model=dict,
-    summary="Obtener perfil actual",
-    description="Obtiene la información del usuario autenticado"
-)
-async def get_current_user_profile(
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Obtiene el perfil del usuario autenticado.
-    
-    Requiere autenticación JWT en el header Authorization.
-    """
-    try:
-        user_response = user_to_response(current_user)
-        return {
-            "user": user_response,
-            "message": "Perfil obtenido exitosamente"
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor"
-        )
-
 @router.get(
     "/{user_id}",
     response_model=dict,
     summary="Obtener usuario por ID",
-    description="Obtiene un usuario específico por su ID"
+    description="Obtiene información de un usuario específico"
 )
 async def get_user_by_id(
     user_id: str,
@@ -1282,9 +1795,12 @@ async def get_user_by_id(
     """
     Obtiene un usuario por su ID.
     
+    **Requiere autenticación JWT.**
+    
     - **user_id**: ID único del usuario
     
-    Los usuarios solo pueden ver su propia información.
+    Los usuarios solo pueden acceder a su propia información,
+    salvo que tengan permisos administrativos.
     """
     try:
         user = await user_controller.get_user_by_id(user_id, current_user)
@@ -1294,12 +1810,13 @@ async def get_user_by_id(
             "message": "Usuario obtenido exitosamente"
         }
     except ValueError as e:
-        if "no encontrado" in str(e).lower() or "not found" in str(e).lower():
+        error_message = str(e).lower()
+        if "no encontrado" in error_message or "not found" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e)
             )
-        elif "permisos" in str(e).lower() or "permission" in str(e).lower():
+        elif "permisos" in error_message or "permission" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=str(e)
@@ -1316,21 +1833,25 @@ async def get_user_by_id(
         )
 
 @router.get(
-    "/",
+    "",
     response_model=UserListResponse,
-    summary="Listar usuarios",
-    description="Obtiene una lista paginada de usuarios"
+    summary="Listar todos los usuarios",
+    description="Obtiene una lista paginada de todos los usuarios"
 )
-async def list_users(
+async def list_all_users(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(20, ge=1, le=100, description="Límite de registros por página"),
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Lista usuarios con paginación.
+    Lista todos los usuarios con paginación.
+    
+    **Requiere autenticación JWT.**
     
     - **skip**: Número de registros a saltar (default: 0)
     - **limit**: Límite de registros por página (default: 20, max: 100)
+    
+    Devuelve información básica de todos los usuarios activos.
     """
     try:
         query = UserQueryRequest(skip=skip, limit=limit)
@@ -1350,7 +1871,7 @@ async def list_users(
     "/{user_id}",
     response_model=UserUpdateResponse,
     summary="Actualizar usuario",
-    description="Actualiza la información de un usuario"
+    description="Actualiza la información de un usuario existente"
 )
 async def update_user(
     user_id: str,
@@ -1358,23 +1879,27 @@ async def update_user(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Actualiza un usuario.
+    Actualiza un usuario existente.
+    
+    **Requiere autenticación JWT.**
     
     - **user_id**: ID único del usuario a actualizar
     - **email**: Nuevo email (opcional)
     - **password**: Nueva contraseña (opcional)
     
-    Los usuarios solo pueden actualizar su propia información.
+    Los usuarios solo pueden actualizar su propia información,
+    salvo que tengan permisos administrativos.
     """
     try:
         return await user_controller.update_user(user_id, request, current_user)
     except ValueError as e:
-        if "no encontrado" in str(e).lower() or "not found" in str(e).lower():
+        error_message = str(e).lower()
+        if "no encontrado" in error_message or "not found" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e)
             )
-        elif "permisos" in str(e).lower() or "permission" in str(e).lower():
+        elif "permisos" in error_message or "permission" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=str(e)
@@ -1393,30 +1918,34 @@ async def update_user(
 @router.delete(
     "/{user_id}",
     response_model=UserDeleteResponse,
-    summary="Desactivar usuario",
-    description="Desactiva un usuario (soft delete)"
+    summary="Eliminar usuario",
+    description="Elimina un usuario del sistema"
 )
-async def deactivate_user(
+async def delete_user(
     user_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Desactiva un usuario (soft delete).
+    Elimina un usuario del sistema.
     
-    - **user_id**: ID único del usuario a desactivar
+    **Requiere autenticación JWT.**
     
-    Los usuarios solo pueden desactivar su propia cuenta.
-    El usuario se marca como inactivo pero no se elimina de la base de datos.
+    - **user_id**: ID único del usuario a eliminar
+    
+    Por defecto realiza un soft delete (desactivación).
+    Los usuarios solo pueden eliminar su propia cuenta,
+    salvo que tengan permisos administrativos.
     """
     try:
         return await user_controller.delete_user_soft(user_id, current_user)
     except ValueError as e:
-        if "no encontrado" in str(e).lower() or "not found" in str(e).lower():
+        error_message = str(e).lower()
+        if "no encontrado" in error_message or "not found" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e)
             )
-        elif "permisos" in str(e).lower() or "permission" in str(e).lower():
+        elif "permisos" in error_message or "permission" in error_message:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=str(e)
@@ -1432,83 +1961,34 @@ async def deactivate_user(
             detail="Error interno del servidor"
         )
 
-@router.delete(
-    "/{user_id}/permanent",
-    response_model=UserDeleteResponse,
-    summary="Eliminar usuario permanentemente",
-    description="Elimina un usuario permanentemente (hard delete)"
+# Endpoints adicionales para operaciones avanzadas
+@router.get(
+    "/me/profile",
+    response_model=dict,
+    summary="Obtener perfil actual",
+    description="Obtiene la información del usuario autenticado"
 )
-async def delete_user_permanent(
-    user_id: str,
+async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Elimina un usuario permanentemente (hard delete).
+    Obtiene el perfil del usuario autenticado.
     
-    - **user_id**: ID único del usuario a eliminar
+    **Requiere autenticación JWT.**
     
-    ⚠️ **ADVERTENCIA**: Esta acción es irreversible.
-    Los usuarios solo pueden eliminar su propia cuenta.
+    Devuelve la información completa del usuario que está autenticado.
     """
     try:
-        return await user_controller.delete_user_hard(user_id, current_user)
-    except ValueError as e:
-        if "no encontrado" in str(e).lower() or "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        elif "permisos" in str(e).lower() or "permission" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
+        user_response = user_to_response(current_user)
+        return {
+            "user": user_response,
+            "message": "Perfil obtenido exitosamente"
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error interno del servidor"
         )
-
-@router.post(
-    "/{user_id}/reactivate",
-    response_model=UserUpdateResponse,
-    summary="Reactivar usuario",
-    description="Reactiva un usuario previamente desactivado"
-)
-async def reactivate_user(
-    user_id: str,
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Reactiva un usuario previamente desactivado.
-    
-    - **user_id**: ID único del usuario a reactivar
-    
-    Los usuarios solo pueden reactivar su propia cuenta.
-    """
-    try:
-        return await user_controller.reactivate_user(user_id, current_user)
-    except ValueError as e:
-        if "no encontrado" in str(e).lower() or "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        elif "permisos" in str(e).lower() or "permission" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
 >>>> app/interfaces/schemas/user_request.py
 """
 Esquemas de request para operaciones de usuario.
@@ -1703,16 +2183,27 @@ def users_to_list_response(
 >>>> app/main.py
 """
 Punto de entrada principal de la aplicación FastAPI.
-Configura la aplicación, middleware, CORS y rutas.
+Configura la aplicación, middleware, CORS, rutas y manejadores de excepciones.
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
+import logging
+import time
+from datetime import datetime
 from app.core.config import settings
 from app.interfaces.api.v1.api_v1 import api_router
 from app.infrastructure.db.mongo_client import mongo_client
+from app.core.exception_handlers import EXCEPTION_HANDLERS
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1721,53 +2212,89 @@ async def lifespan(app: FastAPI):
     Se ejecuta al iniciar y al cerrar la aplicación.
     """
     # Startup: Conectar a la base de datos
-    print("🚀 Iniciando aplicación...")
+    logger.info("🚀 Iniciando aplicación...")
     try:
         mongo_client.connect()
-        print("✅ Conectado a la base de datos (Mock)")
+        logger.info("✅ Conectado a la base de datos (Mock)")
     except Exception as e:
-        print(f"❌ Error al conectar a la base de datos: {e}")
+        logger.error(f"❌ Error al conectar a la base de datos: {e}")
     
     yield
     
     # Shutdown: Cerrar conexiones
-    print("🛑 Cerrando aplicación...")
+    logger.info("🛑 Cerrando aplicación...")
     try:
         mongo_client.disconnect()
-        print("✅ Desconectado de la base de datos")
+        logger.info("✅ Desconectado de la base de datos")
     except Exception as e:
-        print(f"❌ Error al desconectar de la base de datos: {e}")
+        logger.error(f"❌ Error al desconectar de la base de datos: {e}")
 
 # Crear instancia de FastAPI
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.PROJECT_VERSION,
     description="""
-    ## Clients API
+    ## Clients API - Clean Architecture Implementation
     
-    API REST para gestión de usuarios con autenticación JWT.
+    API REST para gestión de usuarios con autenticación JWT implementada siguiendo 
+    principios de Clean Architecture.
     
-    ### Características principales:
+    ### 🏗️ Arquitectura
     
-    * **Registro de usuarios**: Crear nuevas cuentas con email y contraseña
-    * **Autenticación JWT**: Sistema de tokens para proteger endpoints
-    * **CRUD completo**: Crear, leer, actualizar y eliminar usuarios
-    * **Paginación**: Listado eficiente de usuarios con paginación
-    * **Soft Delete**: Desactivación de usuarios sin eliminar datos
-    * **Clean Architecture**: Código organizado y mantenible
+    - **Domain Layer**: Entidades y lógica de negocio pura
+    - **Application Layer**: Casos de uso y orquestación
+    - **Infrastructure Layer**: Implementaciones concretas (BD, Auth, etc.)
+    - **Presentation Layer**: Controllers y API endpoints
     
-    ### Autenticación
+    ### ✨ Características principales
     
-    Para acceder a los endpoints protegidos, incluye el token JWT en el header:
+    * **🔐 Autenticación JWT**: Sistema seguro de tokens Bearer
+    * **👥 CRUD de Usuarios**: Operaciones completas de gestión
+    * **📝 Validación robusta**: Validaciones con Pydantic y reglas de negocio
+    * **🛡️ Seguridad**: Contraseñas hasheadas con bcrypt
+    * **📊 Paginación**: Listados eficientes con paginación
+    * **🗑️ Soft Delete**: Desactivación de usuarios sin pérdida de datos
+    * **🚨 Manejo de errores**: Sistema centralizado de excepciones
+    * **📖 Documentación**: OpenAPI/Swagger completa
+    
+    ### 🔗 Endpoints principales
+    
+    #### Autenticación (público)
+    - `POST /api/v1/auth/register` - Registrar nuevo usuario
+    - `POST /api/v1/auth/login` - Iniciar sesión
+    
+    #### Usuarios (requiere autenticación)
+    - `POST /api/v1/users` - Crear usuario
+    - `GET /api/v1/users/{id}` - Obtener usuario por ID
+    - `GET /api/v1/users` - Listar usuarios
+    - `PUT /api/v1/users/{id}` - Actualizar usuario
+    - `DELETE /api/v1/users/{id}` - Eliminar usuario
+    
+    ### 🔑 Autenticación
+    
+    Para acceder a endpoints protegidos, incluye el token JWT:
     ```
     Authorization: Bearer <tu_token_jwt>
     ```
     
-    ### Comenzar
+    ### 🚀 Inicio rápido
     
-    1. Registra un usuario en `/api/v1/users/register`
-    2. Inicia sesión en `/api/v1/users/login` para obtener tu token
-    3. Usa el token para acceder a los endpoints protegidos
+    1. **Registrarse**: `POST /api/v1/auth/register`
+    2. **Iniciar sesión**: `POST /api/v1/auth/login`
+    3. **Usar token**: Incluir en header `Authorization: Bearer <token>`
+    4. **Explorar API**: Usar los endpoints protegidos
+    
+    ### 📊 Códigos de respuesta
+    
+    - `200` - Operación exitosa
+    - `201` - Recurso creado
+    - `400` - Datos de entrada inválidos
+    - `401` - No autenticado
+    - `403` - Sin permisos
+    - `404` - Recurso no encontrado
+    - `409` - Conflicto (ej: email ya existe)
+    - `422` - Error de reglas de negocio
+    - `500` - Error interno del servidor
     """,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
     docs_url="/docs",
@@ -1780,56 +2307,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Manejador global de excepciones
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """
-    Manejador personalizado para excepciones HTTP.
-    Devuelve respuestas consistentes en formato JSON.
-    """
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": True,
-            "message": exc.detail,
-            "status_code": exc.status_code,
-            "path": str(request.url)
-        }
-    )
-
-@app.exception_handler(ValueError)
-async def value_error_handler(request: Request, exc: ValueError):
-    """
-    Manejador para errores de validación (ValueError).
-    """
-    return JSONResponse(
-        status_code=400,
-        content={
-            "error": True,
-            "message": str(exc),
-            "status_code": 400,
-            "path": str(request.url)
-        }
-    )
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """
-    Manejador para excepciones generales no capturadas.
-    """
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": True,
-            "message": "Error interno del servidor",
-            "status_code": 500,
-            "path": str(request.url)
-        }
-    )
+# Registrar manejadores de excepciones
+for exception_type, handler in EXCEPTION_HANDLERS.items():
+    app.add_exception_handler(exception_type, handler)
 
 # Incluir rutas de la API v1
 app.include_router(
@@ -1837,45 +2321,101 @@ app.include_router(
     prefix=settings.API_V1_PREFIX
 )
 
+# Middleware para logging de requests
+import time
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Middleware para logging de todas las requests."""
+    start_time = time.time()
+    
+    # Log request
+    logger.info(f"📥 {request.method} {request.url}")
+    
+    response = await call_next(request)
+    
+    # Log response
+    process_time = time.time() - start_time
+    logger.info(f"📤 {request.method} {request.url} - {response.status_code} - {process_time:.4f}s")
+    
+    return response
+
 # Endpoint raíz
 @app.get(
     "/",
     tags=["root"],
     summary="Root Endpoint",
-    description="Endpoint raíz de la API"
+    description="Endpoint raíz que proporciona información básica de la API"
 )
 async def root():
     """
-    Endpoint raíz que proporciona información básica de la API.
+    Endpoint raíz con información básica de la API.
+    
+    Proporciona enlaces útiles y estado general del sistema.
     """
     return {
-        "message": f"Bienvenido a {settings.PROJECT_NAME}",
+        "message": f"¡Bienvenido a {settings.PROJECT_NAME}! 🚀",
         "version": settings.PROJECT_VERSION,
-        "docs": "/docs",
-        "redoc": "/redoc",
-        "api_v1": settings.API_V1_PREFIX,
-        "status": "running"
+        "architecture": "Clean Architecture",
+        "status": "active",
+        "links": {
+            "documentation": "/docs",
+            "redoc": "/redoc",
+            "api_v1": settings.API_V1_PREFIX,
+            "health_check": f"{settings.API_V1_PREFIX}/health",
+            "api_info": f"{settings.API_V1_PREFIX}/info"
+        },
+        "authentication": {
+            "register": f"{settings.API_V1_PREFIX}/auth/register",
+            "login": f"{settings.API_V1_PREFIX}/auth/login",
+            "type": "JWT Bearer Token"
+        }
     }
 
-# Endpoint de estado
+# Endpoint de estado detallado
 @app.get(
     "/status",
     tags=["status"],
     summary="Application Status",
-    description="Estado detallado de la aplicación"
+    description="Estado detallado de la aplicación y sus componentes"
 )
 async def status():
     """
     Proporciona información detallada del estado de la aplicación.
+    
+    Incluye estado de conexiones, configuración y métricas básicas.
     """
     return {
-        "application": settings.PROJECT_NAME,
-        "version": settings.PROJECT_VERSION,
-        "environment": settings.ENVIRONMENT,
-        "debug": settings.DEBUG,
-        "database_connected": mongo_client.is_connected(),
-        "api_docs": "/docs",
-        "health_check": f"{settings.API_V1_PREFIX}/health"
+        "application": {
+            "name": settings.PROJECT_NAME,
+            "version": settings.PROJECT_VERSION,
+            "environment": settings.ENVIRONMENT,
+            "debug": settings.DEBUG
+        },
+        "services": {
+            "database": {
+                "status": "connected" if mongo_client.is_connected() else "disconnected",
+                "type": "Mock MongoDB (development)"
+            },
+            "authentication": {
+                "status": "active",
+                "type": "JWT",
+                "algorithm": settings.JWT_ALGORITHM,
+                "expiration_minutes": settings.JWT_EXPIRATION_TIME_MINUTES
+            }
+        },
+        "api": {
+            "version": "v1",
+            "prefix": settings.API_V1_PREFIX,
+            "docs": "/docs",
+            "redoc": "/redoc"
+        },
+        "health_checks": {
+            "main": f"{settings.API_V1_PREFIX}/health",
+            "detailed": "/status"
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+        "uptime_status": "running"
     }
 
 # Función para ejecutar la aplicación durante desarrollo
@@ -1902,6 +2442,12 @@ Encapsula la lógica de negocio para registrar un nuevo usuario.
 from app.domain.user.user_entity import User
 from app.infrastructure.auth.password_hashing import password_hasher
 from app.infrastructure.db.user_model import user_model
+from app.core.utils import validation_utils
+from app.core.exceptions import (
+    ValidationException,
+    UserAlreadyExistsException,
+    InfrastructureException
+)
 
 class CreateUserUseCase:
     """
@@ -1912,6 +2458,7 @@ class CreateUserUseCase:
     def __init__(self):
         self.user_model = user_model
         self.password_hasher = password_hasher
+        self.validation_utils = validation_utils
     
     async def execute(self, email: str, password: str) -> User:
         """
@@ -1925,24 +2472,20 @@ class CreateUserUseCase:
             Entidad User creada
             
         Raises:
-            ValueError: Si hay errores de validación o el usuario ya existe
+            ValidationException: Si hay errores de validación de entrada
+            UserAlreadyExistsException: Si el usuario ya existe
+            InfrastructureException: Si hay errores de infraestructura
         """
-        # Validaciones de negocio
-        if not email or not email.strip():
-            raise ValueError("Email es requerido")
-        
-        if not password or len(password.strip()) < 6:
-            raise ValueError("Password debe tener al menos 6 caracteres")
+        # Validaciones de entrada
+        await self._validate_input(email, password)
         
         email = email.lower().strip()
         
         # Verificar si el usuario ya existe
-        existing_user = await self.user_model.get_by_email(email)
-        if existing_user:
-            raise ValueError(f"Usuario con email {email} ya existe")
+        await self._check_user_not_exists(email)
         
         # Hash de la contraseña
-        password_hash = self.password_hasher.hash_password(password)
+        password_hash = self._hash_password(password)
         
         # Crear nueva entidad User
         new_user = User.create_new_user(
@@ -1951,9 +2494,93 @@ class CreateUserUseCase:
         )
         
         # Guardar en la base de datos
-        created_user = await self.user_model.create(new_user)
+        try:
+            created_user = await self.user_model.create(new_user)
+            return created_user
+        except Exception as e:
+            raise InfrastructureException(
+                f"Error al crear usuario: {str(e)}", 
+                "database"
+            )
+    
+    async def _validate_input(self, email: str, password: str):
+        """
+        Valida los datos de entrada.
         
-        return created_user
+        Args:
+            email: Email a validar
+            password: Contraseña a validar
+            
+        Raises:
+            ValidationException: Si hay errores de validación
+        """
+        if not email or not email.strip():
+            raise ValidationException("Email es requerido", "email")
+        
+        if not password or not password.strip():
+            raise ValidationException("Contraseña es requerida", "password")
+        
+        # Validar formato del email
+        if not self.validation_utils.is_valid_email(email):
+            raise ValidationException("Formato de email inválido", "email")
+        
+        # Validar contraseña
+        if not self.validation_utils.is_valid_password(password):
+            raise ValidationException(
+                "La contraseña debe tener entre 6 y 128 caracteres", 
+                "password"
+            )
+    
+    async def _check_user_not_exists(self, email: str):
+        """
+        Verifica que el usuario no exista.
+        
+        Args:
+            email: Email a verificar
+            
+        Raises:
+            UserAlreadyExistsException: Si el usuario ya existe
+        """
+        existing_user = await self.user_model.get_by_email(email)
+        if existing_user:
+            raise UserAlreadyExistsException(email)
+    
+    def _hash_password(self, password: str) -> str:
+        """
+        Genera el hash de la contraseña.
+        
+        Args:
+            password: Contraseña en texto plano
+            
+        Returns:
+            Hash de la contraseña
+            
+        Raises:
+            InfrastructureException: Si hay error al generar el hash
+        """
+        try:
+            return self.password_hasher.hash_password(password)
+        except Exception as e:
+            raise InfrastructureException(
+                f"Error al procesar contraseña: {str(e)}", 
+                "password_hasher"
+            )
+    
+    async def check_email_availability(self, email: str) -> bool:
+        """
+        Verifica si un email está disponible.
+        
+        Args:
+            email: Email a verificar
+            
+        Returns:
+            True si está disponible, False si ya está en uso
+        """
+        if not email or not self.validation_utils.is_valid_email(email):
+            return False
+        
+        existing_user = await self.user_model.get_by_email(email.lower().strip())
+        return existing_user is None
 
 # Instancia del caso de uso
 create_user_use_case = CreateUserUseCase()
@@ -2371,6 +2998,13 @@ from app.domain.user.user_entity import User
 from app.infrastructure.auth.password_hashing import password_hasher
 from app.infrastructure.auth.jwt_handler import jwt_handler
 from app.infrastructure.db.user_model import user_model
+from app.core.utils import validation_utils
+from app.core.exceptions import (
+    ValidationException,
+    InvalidCredentialsException,
+    UserInactiveException,
+    UserNotFoundException
+)
 
 class LoginUserUseCase:
     """
@@ -2382,6 +3016,7 @@ class LoginUserUseCase:
         self.user_model = user_model
         self.password_hasher = password_hasher
         self.jwt_handler = jwt_handler
+        self.validation_utils = validation_utils
     
     async def execute(self, email: str, password: str) -> Tuple[str, User]:
         """
@@ -2395,32 +3030,39 @@ class LoginUserUseCase:
             Tupla con (token_jwt, entidad_user)
             
         Raises:
-            ValueError: Si las credenciales son inválidas
+            ValidationException: Si los datos de entrada son inválidos
+            InvalidCredentialsException: Si las credenciales son incorrectas
+            UserInactiveException: Si el usuario está inactivo
         """
-        # Validaciones básicas
+        # Validaciones de entrada
         if not email or not email.strip():
-            raise ValueError("Email es requerido")
+            raise ValidationException("Email es requerido", "email")
         
         if not password or not password.strip():
-            raise ValueError("Password es requerido")
+            raise ValidationException("Contraseña es requerida", "password")
+        
+        # Validar formato del email
+        if not self.validation_utils.is_valid_email(email):
+            raise ValidationException("Formato de email inválido", "email")
         
         email = email.lower().strip()
         
         # Buscar usuario por email
         user = await self.user_model.get_by_email(email)
         if not user:
-            raise ValueError("Credenciales inválidas")
+            # Por seguridad, no revelamos si el email existe o no
+            raise InvalidCredentialsException()
         
         # Verificar si el usuario está activo
         if not user.is_active:
-            raise ValueError("Usuario inactivo")
+            raise UserInactiveException(user.id)
         
         # Verificar contraseña
         is_valid_password = self.password_hasher.verify_password(
             password, user.password_hash
         )
         if not is_valid_password:
-            raise ValueError("Credenciales inválidas")
+            raise InvalidCredentialsException()
         
         # Generar token JWT
         access_token = self.jwt_handler.create_access_token(
@@ -2429,6 +3071,24 @@ class LoginUserUseCase:
         )
         
         return access_token, user
+    
+    async def validate_credentials(self, email: str, password: str) -> bool:
+        """
+        Valida credenciales sin generar token.
+        Útil para validaciones internas.
+        
+        Args:
+            email: Email del usuario
+            password: Contraseña en texto plano
+            
+        Returns:
+            True si las credenciales son válidas, False en caso contrario
+        """
+        try:
+            await self.execute(email, password)
+            return True
+        except (InvalidCredentialsException, UserInactiveException, ValidationException):
+            return False
 
 # Instancia del caso de uso
 login_user_use_case = LoginUserUseCase()
@@ -2441,6 +3101,7 @@ from typing import Optional
 from app.domain.user.user_entity import User
 from app.infrastructure.auth.password_hashing import password_hasher
 from app.infrastructure.db.user_model import user_model
+from app.core.utils import validation_utils
 
 class UpdateUserUseCase:
     """
@@ -2451,6 +3112,7 @@ class UpdateUserUseCase:
     def __init__(self):
         self.user_model = user_model
         self.password_hasher = password_hasher
+        self.validation_utils = validation_utils
     
     async def execute(
         self,
@@ -2499,30 +3161,62 @@ class UpdateUserUseCase:
         
         # Validar y actualizar email si se proporciona
         if new_email:
-            new_email = new_email.lower().strip()
-            if not new_email or "@" not in new_email:
-                raise ValueError("Email debe ser válido")
-            
-            # Verificar que el email no esté en uso por otro usuario
-            existing_user = await self.user_model.get_by_email(new_email)
-            if existing_user and existing_user.id != user_id:
-                raise ValueError(f"Email {new_email} ya está en uso")
-            
-            user.update_email(new_email)
+            await self._update_user_email(user, new_email)
         
         # Validar y actualizar contraseña si se proporciona
         if new_password:
-            if len(new_password.strip()) < 6:
-                raise ValueError("Password debe tener al menos 6 caracteres")
-            
-            new_password_hash = self.password_hasher.hash_password(new_password)
-            user.password_hash = new_password_hash
-            user.updated_at = user.updated_at  # Actualizado por update_email si aplica
+            await self._update_user_password(user, new_password)
         
         # Guardar cambios
         updated_user = await self.user_model.update(user)
         
         return updated_user
+    
+    async def _update_user_email(self, user: User, new_email: str):
+        """
+        Actualiza el email del usuario con validaciones.
+        
+        Args:
+            user: Entidad User a actualizar
+            new_email: Nuevo email
+            
+        Raises:
+            ValueError: Si el email es inválido o ya está en uso
+        """
+        # Validar formato del email
+        if not self.validation_utils.is_valid_email(new_email):
+            raise ValueError("El formato del email es inválido")
+        
+        new_email = new_email.lower().strip()
+        
+        # Verificar que el email no esté en uso por otro usuario
+        existing_user = await self.user_model.get_by_email(new_email)
+        if existing_user and existing_user.id != user.id:
+            raise ValueError(f"El email {new_email} ya está en uso por otro usuario")
+        
+        # Actualizar email en la entidad
+        user.update_email(new_email)
+    
+    async def _update_user_password(self, user: User, new_password: str):
+        """
+        Actualiza la contraseña del usuario con validaciones.
+        
+        Args:
+            user: Entidad User a actualizar
+            new_password: Nueva contraseña
+            
+        Raises:
+            ValueError: Si la contraseña no cumple los requisitos
+        """
+        # Validar contraseña
+        if not self.validation_utils.is_valid_password(new_password):
+            raise ValueError("La contraseña debe tener entre 6 y 128 caracteres")
+        
+        # Generar nuevo hash
+        new_password_hash = self.password_hasher.hash_password(new_password)
+        
+        # Actualizar contraseña en la entidad
+        user.update_password_hash(new_password_hash)
     
     async def execute_by_admin(
         self,
@@ -2560,24 +3254,11 @@ class UpdateUserUseCase:
         
         # Actualizar email si se proporciona
         if new_email:
-            new_email = new_email.lower().strip()
-            if not new_email or "@" not in new_email:
-                raise ValueError("Email debe ser válido")
-            
-            # Verificar que el email no esté en uso por otro usuario
-            existing_user = await self.user_model.get_by_email(new_email)
-            if existing_user and existing_user.id != user_id:
-                raise ValueError(f"Email {new_email} ya está en uso")
-            
-            user.update_email(new_email)
+            await self._update_user_email(user, new_email)
         
         # Actualizar contraseña si se proporciona
         if new_password:
-            if len(new_password.strip()) < 6:
-                raise ValueError("Password debe tener al menos 6 caracteres")
-            
-            new_password_hash = self.password_hasher.hash_password(new_password)
-            user.password_hash = new_password_hash
+            await self._update_user_password(user, new_password)
         
         # Actualizar estado activo si se proporciona
         if is_active is not None:
@@ -2598,13 +3279,28 @@ update_user_use_case = UpdateUserUseCase()
 >>>> docker/mongo-init.js
 
 >>>> requirements.txt
-fastapi
-uvicorn[standard]
-pydantic
-python-jose
-bcrypt
-PyJWT
-pydantic[email]
+# FastAPI y servidor
+fastapi==0.103.2
+uvicorn[standard]==0.23.2
+
+# Validación y serialización
+pydantic==1.10.13  # Última versión estable de Pydantic v1 compatible con más herramientas
+
+# Autenticación y seguridad
+PyJWT==2.8.0
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.2
+passlib[bcrypt]==1.7.4
+
+# Utilidades
+python-multipart==0.0.6
+email-validator==1.3.1  # Versión estable y no yankeada
+
+# Desarrollo y testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
 >>>> tests/integration/test_user_endpoints.py
 
 >>>> tests/unit/test_entities.py

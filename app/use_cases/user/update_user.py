@@ -6,6 +6,7 @@ from typing import Optional
 from app.domain.user.user_entity import User
 from app.infrastructure.auth.password_hashing import password_hasher
 from app.infrastructure.db.user_model import user_model
+from app.core.utils import validation_utils
 
 class UpdateUserUseCase:
     """
@@ -16,6 +17,7 @@ class UpdateUserUseCase:
     def __init__(self):
         self.user_model = user_model
         self.password_hasher = password_hasher
+        self.validation_utils = validation_utils
     
     async def execute(
         self,
@@ -64,30 +66,62 @@ class UpdateUserUseCase:
         
         # Validar y actualizar email si se proporciona
         if new_email:
-            new_email = new_email.lower().strip()
-            if not new_email or "@" not in new_email:
-                raise ValueError("Email debe ser válido")
-            
-            # Verificar que el email no esté en uso por otro usuario
-            existing_user = await self.user_model.get_by_email(new_email)
-            if existing_user and existing_user.id != user_id:
-                raise ValueError(f"Email {new_email} ya está en uso")
-            
-            user.update_email(new_email)
+            await self._update_user_email(user, new_email)
         
         # Validar y actualizar contraseña si se proporciona
         if new_password:
-            if len(new_password.strip()) < 6:
-                raise ValueError("Password debe tener al menos 6 caracteres")
-            
-            new_password_hash = self.password_hasher.hash_password(new_password)
-            user.password_hash = new_password_hash
-            user.updated_at = user.updated_at  # Actualizado por update_email si aplica
+            await self._update_user_password(user, new_password)
         
         # Guardar cambios
         updated_user = await self.user_model.update(user)
         
         return updated_user
+    
+    async def _update_user_email(self, user: User, new_email: str):
+        """
+        Actualiza el email del usuario con validaciones.
+        
+        Args:
+            user: Entidad User a actualizar
+            new_email: Nuevo email
+            
+        Raises:
+            ValueError: Si el email es inválido o ya está en uso
+        """
+        # Validar formato del email
+        if not self.validation_utils.is_valid_email(new_email):
+            raise ValueError("El formato del email es inválido")
+        
+        new_email = new_email.lower().strip()
+        
+        # Verificar que el email no esté en uso por otro usuario
+        existing_user = await self.user_model.get_by_email(new_email)
+        if existing_user and existing_user.id != user.id:
+            raise ValueError(f"El email {new_email} ya está en uso por otro usuario")
+        
+        # Actualizar email en la entidad
+        user.update_email(new_email)
+    
+    async def _update_user_password(self, user: User, new_password: str):
+        """
+        Actualiza la contraseña del usuario con validaciones.
+        
+        Args:
+            user: Entidad User a actualizar
+            new_password: Nueva contraseña
+            
+        Raises:
+            ValueError: Si la contraseña no cumple los requisitos
+        """
+        # Validar contraseña
+        if not self.validation_utils.is_valid_password(new_password):
+            raise ValueError("La contraseña debe tener entre 6 y 128 caracteres")
+        
+        # Generar nuevo hash
+        new_password_hash = self.password_hasher.hash_password(new_password)
+        
+        # Actualizar contraseña en la entidad
+        user.update_password_hash(new_password_hash)
     
     async def execute_by_admin(
         self,
@@ -125,24 +159,11 @@ class UpdateUserUseCase:
         
         # Actualizar email si se proporciona
         if new_email:
-            new_email = new_email.lower().strip()
-            if not new_email or "@" not in new_email:
-                raise ValueError("Email debe ser válido")
-            
-            # Verificar que el email no esté en uso por otro usuario
-            existing_user = await self.user_model.get_by_email(new_email)
-            if existing_user and existing_user.id != user_id:
-                raise ValueError(f"Email {new_email} ya está en uso")
-            
-            user.update_email(new_email)
+            await self._update_user_email(user, new_email)
         
         # Actualizar contraseña si se proporciona
         if new_password:
-            if len(new_password.strip()) < 6:
-                raise ValueError("Password debe tener al menos 6 caracteres")
-            
-            new_password_hash = self.password_hasher.hash_password(new_password)
-            user.password_hash = new_password_hash
+            await self._update_user_password(user, new_password)
         
         # Actualizar estado activo si se proporciona
         if is_active is not None:
