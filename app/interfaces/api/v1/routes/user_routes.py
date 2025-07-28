@@ -24,8 +24,8 @@ from app.domain.user.user_entity import User
 # Router para las rutas de usuario (requieren autenticación)
 router = APIRouter(tags=["users"])
 
-# IMPORTANTE: Las rutas específicas deben ir ANTES que las rutas con parámetros
-# para evitar conflictos en FastAPI
+# CRÍTICO: Las rutas específicas deben ir ANTES que las rutas con parámetros
+# para evitar conflictos en el routing de FastAPI
 
 @router.get(
     "/me/profile",
@@ -50,31 +50,6 @@ async def get_current_user_profile(
         "user": user_response,
         "message": "Perfil obtenido exitosamente"
     }
-
-@router.get(
-    "",
-    response_model=UserListResponse,
-    summary="Listar todos los usuarios",
-    description="Obtiene una lista paginada de todos los usuarios"
-)
-async def list_all_users(
-    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
-    limit: int = Query(20, ge=1, le=100, description="Límite de registros por página"),
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    Lista todos los usuarios con paginación.
-    
-    **Requiere autenticación JWT.**
-    
-    - **skip**: Número de registros a saltar (default: 0)
-    - **limit**: Límite de registros por página (default: 20, max: 100)
-    
-    Devuelve información básica de todos los usuarios activos.
-    """
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    query = UserQueryRequest(skip=skip, limit=limit)
-    return await user_controller.list_users(query, current_user)
 
 @router.post(
     "",
@@ -101,7 +76,7 @@ async def create_user(
     return await user_controller.create_user(request)
 
 @router.get(
-    "/{user_id}",
+    "/user/{user_id}",
     response_model=dict,
     summary="Obtener usuario por ID",
     description="Obtiene información de un usuario específico"
@@ -128,7 +103,7 @@ async def get_user_by_id(
     }
 
 @router.put(
-    "/{user_id}",
+    "/user/{user_id}",
     response_model=UserUpdateResponse,
     summary="Actualizar usuario",
     description="Actualiza la información de un usuario existente"
@@ -154,7 +129,7 @@ async def update_user(
     return await user_controller.update_user(user_id, request, current_user)
 
 @router.delete(
-    "/{user_id}",
+    "/user/{user_id}",
     response_model=UserDeleteResponse,
     summary="Eliminar usuario",
     description="Elimina un usuario del sistema"
@@ -176,3 +151,28 @@ async def delete_user(
     """
     # Las excepciones se manejan automáticamente por el sistema centralizado
     return await user_controller.delete_user_soft(user_id, current_user)
+
+@router.get(
+    "",
+    response_model=UserListResponse,
+    summary="Listar todos los usuarios",
+    description="Obtiene una lista paginada de todos los usuarios"
+)
+async def list_all_users(
+    skip: int = Query(0, ge=0, description="Número de registros a saltar"),
+    limit: int = Query(20, ge=1, le=100, description="Límite de registros por página"),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Lista todos los usuarios con paginación.
+    
+    **Requiere autenticación JWT.**
+    
+    - **skip**: Número de registros a saltar (default: 0)
+    - **limit**: Límite de registros por página (default: 20, max: 100)
+    
+    Devuelve información básica de todos los usuarios activos.
+    """
+    # Las excepciones se manejan automáticamente por el sistema centralizado
+    query = UserQueryRequest(skip=skip, limit=limit)
+    return await user_controller.list_users(query, current_user)

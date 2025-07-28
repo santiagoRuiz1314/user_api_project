@@ -1,10 +1,10 @@
-# FastAPI y servidor
-fastapi==0.103.2
-uvicorn[standard]==0.23.2
+# FastAPI y servidor (ACTUALIZADO)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
 
-# Validación y serialización
-pydantic==1.10.13
-pydantic[email]==1.10.13
+# Validación y serialización (CRÍTICO: ACTUALIZADO A PYDANTIC V2)
+pydantic==2.5.0
+pydantic[email]==2.5.0
 
 # Autenticación y seguridad
 PyJWT==2.8.0
@@ -16,11 +16,11 @@ passlib[bcrypt]==1.7.4
 motor==3.3.2  # Driver asíncrono de MongoDB para Python
 pymongo==4.6.0  # Driver síncrono de MongoDB (dependency de motor)
 
-# ✅ AGREGADAS: Dependencias faltantes importantes
+# Dependencias esenciales para FastAPI
 python-multipart==0.0.6
 email-validator==2.1.0.post1
 
-# ✅ AGREGADA: Para manejo de CORS
+# Utilidades
 python-dateutil==2.8.2
 
 # Desarrollo y testing (opcionales en producción)
