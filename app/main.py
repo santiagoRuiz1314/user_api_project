@@ -58,77 +58,87 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.PROJECT_VERSION,
     description="""
-    ## Clients API - Clean Architecture Implementation
-    
-    API REST para gestión de usuarios con autenticación JWT implementada siguiendo 
-    principios de Clean Architecture.
-    
-    ### 🏗️ Arquitectura
-    
+    ## Clients API -
+
+    API REST para gestión de usuarios con autenticación JWT implementada siguiendo principios de Clean Architecture.
+
+    ### Arquitectura
+
     - **Domain Layer**: Entidades y lógica de negocio pura
-    - **Application Layer**: Casos de uso y orquestación
+    - **Application Layer**: Casos de uso y orquestación  
     - **Infrastructure Layer**: Implementaciones concretas (BD, Auth, etc.)
-    - **Presentation Layer**: Controllers y API endpoints
-    
-    ### ✨ Características principales
-    
-    * **🔐 Autenticación JWT**: Sistema seguro de tokens Bearer
-    * **👥 CRUD de Usuarios**: Operaciones completas de gestión
-    * **📝 Validación robusta**: Validaciones con Pydantic y reglas de negocio
-    * **🛡️ Seguridad**: Contraseñas hasheadas con bcrypt
-    * **📊 Paginación**: Listados eficientes con paginación
-    * **🗑️ Soft Delete**: Desactivación de usuarios sin pérdida de datos
-    * **🚨 Manejo de errores**: Sistema centralizado de excepciones
-    * **📖 Documentación**: OpenAPI/Swagger completa
-    * **🍃 MongoDB**: Base de datos NoSQL para almacenamiento persistente
-    
-    ### 🔗 Endpoints principales
-    
+    - **Presentation Layer**: Controllers y endpoints de API
+
+    ### Características principales
+
+    * **Autenticación JWT**: Sistema seguro de tokens Bearer con expiración configurable (30 minutos)
+    * **CRUD Completo de Usuarios**: Operaciones completas de gestión con validaciones robustas
+    * **Validación Integral**: Validaciones con Pydantic v2.5.0 y reglas de negocio en casos de uso
+    * **Seguridad Avanzada**: Contraseñas hasheadas con bcrypt, validación de tokens, usuarios activos/inactivos
+    * **Paginación Eficiente**: Listados con parámetros skip/limit (máximo 100 por página) y metadatos
+    * **Soft Delete**: Desactivación de usuarios preservando datos históricos
+    * **Manejo Centralizado de Errores**: Sistema robusto de excepciones personalizadas por dominio
+    * **Documentación OpenAPI**: Swagger UI y ReDoc con esquemas detallados
+    * **MongoDB Asíncrono**: Base de datos NoSQL con Motor driver, índices optimizados y health checks
+
+    ### Endpoints principales
+
     #### Autenticación (público)
-    - `POST /api/v1/auth/register` - Registrar nuevo usuario
-    - `POST /api/v1/auth/login` - Iniciar sesión
-    - `GET /api/v1/auth/validate-token` - Validar token JWT
-    
+    - **`POST /api/v1/auth/register`** - Registrar nuevo usuario
+    - **`POST /api/v1/auth/login`** - Iniciar sesión y obtener token JWT
+    - **`GET /api/v1/auth/validate-token`** - Validar token JWT (requiere autenticación)
+
     #### Usuarios (requiere autenticación)
-    - `POST /api/v1/users` - Crear usuario
-    - `GET /api/v1/users/{id}` - Obtener usuario por ID
-    - `GET /api/v1/users` - Listar usuarios
-    - `PUT /api/v1/users/{id}` - Actualizar usuario
-    - `DELETE /api/v1/users/{id}` - Eliminar usuario
-    - `GET /api/v1/users/me/profile` - Obtener perfil propio
-    
-    ### 🔑 Autenticación
-    
+    - **`POST /api/v1/users`** - Crear usuario (endpoint administrativo protegido)
+    - **`GET /api/v1/users/user/{user_id}`** - Obtener usuario por ID específico
+    - **`GET /api/v1/users`** - Listar usuarios con paginación
+    - **`PUT /api/v1/users/user/{user_id}`** - Actualizar usuario existente
+    - **`DELETE /api/v1/users/user/{user_id}`** - Eliminar usuario (soft delete)
+    - **`GET /api/v1/users/me/profile`** - Obtener perfil del usuario autenticado
+
+    #### Utilidades y monitoreo
+    - **`GET /api/v1/health`** - Health check básico de la API
+    - **`GET /api/v1/info`** - Información detallada de la API
+    - **`GET /status`** - Estado completo del sistema con estadísticas
+
+    ### Autenticación
+
     Para acceder a endpoints protegidos, incluye el token JWT:
     ```
     Authorization: Bearer <tu_token_jwt>
     ```
-    
-    ### 🚀 Inicio rápido
-    
+
+    **Características del sistema de autenticación:**
+    - Tokens JWT con expiración de 30 minutos (configurable)
+    - Validación estricta: email único, contraseñas de 6-128 caracteres
+    - Solo usuarios activos pueden autenticarse
+    - Permisos granulares: usuarios solo pueden modificar sus propios datos
+
+    ### Inicio rápido
+
     1. **Registrarse**: `POST /api/v1/auth/register`
-    2. **Iniciar sesión**: `POST /api/v1/auth/login`
+    2. **Iniciar sesión**: `POST /api/v1/auth/login` → Obtiene token JWT + datos del usuario
     3. **Usar token**: Incluir en header `Authorization: Bearer <token>`
-    4. **Explorar API**: Usar los endpoints protegidos
-    
-    ### 📊 Códigos de respuesta
-    
-    - `200` - Operación exitosa
-    - `201` - Recurso creado
-    - `400` - Datos de entrada inválidos
-    - `401` - No autenticado
-    - `403` - Sin permisos
-    - `404` - Recurso no encontrado
-    - `409` - Conflicto (ej: email ya existe)
-    - `422` - Error de reglas de negocio
-    - `500` - Error interno del servidor
-    
-    ### 🏭 Base de datos
-    
-    - **MongoDB**: Base de datos NoSQL
-    - **Motor**: Driver asíncrono para Python
-    - **Índices optimizados**: Para consultas eficientes
-    - **Conexión persistente**: Manejo automático de conexiones
+    4. **Explorar API**: Usar los endpoints protegidos con paginación
+
+    ### Base de datos
+
+    - **MongoDB 7.0**: Base de datos NoSQL con alta disponibilidad
+    - **Motor 3.3.2**: Driver asíncrono para Python con conexión persistente
+    - **Índices optimizados**: 
+    - Único en `email` para unicidad
+    - Compuesto en `is_active + email` para consultas eficientes
+    - Simple en `is_active` para filtros de usuarios activos
+    - **Health checks automáticos**: Monitoreo de estado de conexión
+    - **Colección `users`** en base de datos `clients_db`
+
+    ### Parámetros de paginación
+
+    Para listado de usuarios (`GET /api/v1/users`):
+    - **`skip`**: Registros a saltar (default: 0, mínimo: 0)
+    - **`limit`**: Registros por página (default: 20, rango: 1-100)
+
+    **Ejemplo**: `GET /api/v1/users?skip=20&limit=10`
     """,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
     docs_url="/docs",
