@@ -46,18 +46,11 @@ class UserController:
         token, user = await self.login_user_use_case.execute(request.email, request.password)
         from app.core.security import create_token_response_data
         return create_token_response_data(token, user) | {"user": user}
-
     async def get_user_by_id(self, user_id: str, current_user):
-        """
-        Obtiene un usuario por su ID.
-        
-        Args:
-            user_id: ID del usuario a obtener
-            current_user: Usuario autenticado que hace la petición
             
-        Returns:
-            Entidad User encontrada
-        """
+        print(f"🎮 CONTROLLER: get_user_by_id llamado con ID: {user_id}")
+        print(f"🔐 CONTROLLER: requesting_user_id: {current_user.id}")
+        
         return await self.get_user_by_id_use_case.execute(user_id, current_user.id)
 
     async def get_current_user_profile(self, current_user):

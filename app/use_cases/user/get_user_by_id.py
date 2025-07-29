@@ -23,7 +23,7 @@ class GetUserByIdUseCase:
     
     async def execute(self, user_id: str, requesting_user_id: str) -> User:
         """
-        Ejecuta el caso de uso de obtener usuario por ID.
+            Ejecuta el caso de uso de obtener usuario por ID.
         
         Args:
             user_id: ID del usuario a obtener
@@ -37,34 +37,54 @@ class GetUserByIdUseCase:
             UserNotFoundException: Si el usuario no existe
             UserInactiveException: Si el usuario está inactivo
         """
-        # Validaciones básicas
+        print(f"🎯 USE CASE: execute llamado con user_id: {user_id}")
+        print(f"🎯 USE CASE: requesting_user_id: {requesting_user_id}")
+
+            # 🔧 SANITIZAR EL USER_ID
+        import urllib.parse
+        user_id = urllib.parse.unquote(user_id)  # Decodificar URL
+        user_id = user_id.strip("\"'")  # Remover comillas
+        print(f"🧹 USE CASE: user_id sanitizado: {user_id}")
+
+         # Validaciones básicas
         if not user_id or not user_id.strip():
+            print(f"❌ USE CASE: user_id vacío")
             raise ValidationException("User ID es requerido", "user_id")
         
         if not requesting_user_id or not requesting_user_id.strip():
+            print(f"❌ USE CASE: requesting_user_id vacío")
             raise ValidationException("Requesting user ID es requerido", "requesting_user_id")
         
+        print(f"✅ USE CASE: Validaciones básicas pasadas")
+        
         # Verificar que el usuario solicitante existe y está activo
+        print(f"🔍 USE CASE: Verificando usuario solicitante: {requesting_user_id}")
         requesting_user = await self.user_model.get_by_id(requesting_user_id)
         if not requesting_user:
+            print(f"❌ USE CASE: Usuario solicitante no encontrado")
             raise AuthorizationException("Usuario solicitante no encontrado")
         
         if not requesting_user.is_active:
+            print(f"❌ USE CASE: Usuario solicitante inactivo")
             raise UserInactiveException(requesting_user_id)
         
+        print(f"✅ USE CASE: Usuario solicitante válido")
+        
         # Buscar el usuario solicitado
+        print(f"🔍 USE CASE: Llamando a user_model.get_by_id({user_id})")
         user = await self.user_model.get_by_id(user_id)
+        print(f"🔍 USE CASE: user_model.get_by_id() retornó: {user}")
+        
         if not user:
+            print(f"❌ USE CASE: Usuario no encontrado en base de datos")
             raise UserNotFoundException(user_id)
         
         # Verificar que el usuario solicitado esté activo
         if not user.is_active:
+            print(f"❌ USE CASE: Usuario encontrado pero inactivo")
             raise UserNotFoundException(user_id)  # Por seguridad, no revelamos que existe pero está inactivo
         
-        # Permitir acceso a información básica de usuarios activos
-        # En una API pública, los usuarios pueden ver perfiles básicos de otros usuarios
-        # Si se necesita información más sensible, se podría agregar lógica de permisos aquí
-        
+        print(f"✅ USE CASE: Usuario encontrado y activo, retornando")
         return user
     
     async def execute_own_profile(self, user_id: str) -> User:

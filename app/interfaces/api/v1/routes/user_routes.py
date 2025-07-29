@@ -85,22 +85,13 @@ async def get_user_by_id(
     user_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    """
-    Obtiene un usuario por su ID.
+    """..."""
+    print(f"🎯 ROUTER: get_user_by_id llamado con ID: {user_id}")
+    print(f"🔐 ROUTER: current_user: {current_user.email}")
     
-    **Requiere autenticación JWT.**
-    
-    - **user_id**: ID único del usuario
-    
-    Los usuarios pueden ver información básica de otros usuarios activos.
-    """
     # Las excepciones se manejan automáticamente por el sistema centralizado
     user = await user_controller.get_user_by_id(user_id, current_user)
-    user_response = user_to_response(user)
-    return {
-        "user": user_response,
-        "message": "Usuario obtenido exitosamente"
-    }
+    # ... resto del código
 
 @router.put(
     "/user/{user_id}",

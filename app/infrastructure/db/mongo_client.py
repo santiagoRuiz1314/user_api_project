@@ -114,27 +114,75 @@ class MongoClient:
     
     async def get_user_by_id(self, user_id: str) -> Optional[User]:
         """
-        Obtiene un usuario por su ID.
-        
-        Args:
-            user_id: ID del usuario
-            
-        Returns:
-            Entidad User si existe, None en caso contrario
+        Obtiene un usuario por su ID con debug detallado.
         """
         if not self.is_connected():
+            logger.error("❌ Base de datos no conectada")
             raise ConnectionError("Database not connected")
         
         try:
+            # 🔍 DEBUG DETALLADO
+            logger.info(f"🔍 === DEBUG GET_USER_BY_ID ===")
+            logger.info(f"📝 ID recibido: '{user_id}'")
+            logger.info(f"📏 Longitud: {len(user_id)}")
+            logger.info(f"🔤 Tipo: {type(user_id)}")
+            
+            # Verificar conexión a la colección
+            logger.info(f"📊 Colección: {self._users_collection.name}")
+            
+            # Contar documentos totales
+            total_docs = await self._users_collection.count_documents({})
+            logger.info(f"📈 Total documentos en colección: {total_docs}")
+            
+            # Intentar encontrar cualquier documento con ese ID
+            logger.info(f"🔍 Ejecutando query: find_one({{'id': '{user_id}'}})")
             user_doc = await self._users_collection.find_one({"id": user_id})
+            
             if user_doc:
+                logger.info(f"✅ ¡USUARIO ENCONTRADO!")
+                logger.info(f"📧 Email: {user_doc.get('email')}")
+                logger.info(f"🆔 ID en documento: '{user_doc.get('id')}'")
+                logger.info(f"✳️ is_active: {user_doc.get('is_active')}")
+                
                 # Remover el _id de MongoDB antes de crear la entidad
                 user_doc.pop('_id', None)
-                return User.from_dict(user_doc)
-            return None
+                user_entity = User.from_dict(user_doc)
+                logger.info(f"🏗️ Entidad User creada exitosamente")
+                return user_entity
+            else:
+                logger.error(f"❌ NO SE ENCONTRÓ usuario con ID: '{user_id}'")
+                
+                # DEBUG: Buscar documentos similares
+                logger.info(f"🔍 Buscando IDs similares...")
+                similar_docs = await self._users_collection.find(
+                    {"id": {"$regex": user_id[:10]}}, 
+                    {"id": 1, "email": 1}
+                ).limit(5).to_list(length=5)
+                
+                if similar_docs:
+                    logger.info(f"📋 IDs similares encontrados:")
+                    for doc in similar_docs:
+                        logger.info(f"  - {doc.get('id')} | {doc.get('email')}")
+                else:
+                    logger.info(f"🚫 No se encontraron IDs similares")
+                
+                # DEBUG: Mostrar algunos documentos de ejemplo
+                sample_docs = await self._users_collection.find(
+                    {}, {"id": 1, "email": 1}
+                ).limit(3).to_list(length=3)
+                
+                if sample_docs:
+                    logger.info(f"📋 Documentos de ejemplo en la colección:")
+                    for doc in sample_docs:
+                        logger.info(f"  - {doc.get('id')} | {doc.get('email')}")
+                
+                return None
             
         except Exception as e:
-            logger.error(f"❌ Error al obtener usuario por ID {user_id}: {e}")
+            logger.error(f"💥 EXCEPCIÓN en get_user_by_id: {e}")
+            logger.error(f"🔍 Tipo de excepción: {type(e)}")
+            import traceback
+            logger.error(f"📚 Traceback: {traceback.format_exc()}")
             return None
     
     async def get_user_by_email(self, email: str) -> Optional[User]:
