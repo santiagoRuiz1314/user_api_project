@@ -1,3 +1,7 @@
+"""
+Controller de usuarios corregido con DTOs y mappers.
+Mantiene la separación de capas según Clean Architecture.
+"""
 from app.use_cases.user.create_user import create_user_use_case
 from app.use_cases.user.login_user import login_user_use_case
 from app.use_cases.user.get_user_by_id import get_user_by_id_use_case
@@ -10,8 +14,14 @@ from app.interfaces.schemas.user_request import (
     UserUpdateRequest,
     UserQueryRequest
 )
+from app.application.mappers.user_mapper import user_mapper
 
 class UserController:
+    """
+    Controller corregido que usa DTOs y mappers para mantener
+    la separación de capas en Clean Architecture.
+    """
+    
     def __init__(self):
         self.create_user_use_case = create_user_use_case
         self.login_user_use_case = login_user_use_case
@@ -19,8 +29,9 @@ class UserController:
         self.list_users_use_case = list_users_use_case
         self.update_user_use_case = update_user_use_case
         self.delete_user_use_case = delete_user_use_case
+        self.user_mapper = user_mapper
 
-    async def create_user(self, request: UserCreateRequest):
+    async def create_user(self, request: UserCreateRequest) -> dict:
         """
         Crea un nuevo usuario.
         
@@ -31,9 +42,9 @@ class UserController:
             Diccionario con información del usuario creado
         """
         user = await self.create_user_use_case.execute(request.email, request.password)
-        return {"user": user, "message": "Usuario creado exitosamente"}
+        return self.user_mapper.create_user_response(user)
 
-    async def login_user(self, request: UserLoginRequest):
+    async def login_user(self, request: UserLoginRequest) -> dict:
         """
         Autentica un usuario y genera token JWT.
         
@@ -44,16 +55,29 @@ class UserController:
             Diccionario con token y datos del usuario
         """
         token, user = await self.login_user_use_case.execute(request.email, request.password)
-        from app.core.security import create_token_response_data
-        return create_token_response_data(token, user) | {"user": user}
-    async def get_user_by_id(self, user_id: str, current_user):
+        return self.user_mapper.create_login_response(token, user)
+
+    async def get_user_by_id(self, user_id: str, current_user) -> dict:
+        """
+        Obtiene un usuario por ID.
+        
+        Args:
+            user_id: ID del usuario a obtener
+            current_user: Usuario autenticado
             
+        Returns:
+            Diccionario con información del usuario
+        """
         print(f"🎮 CONTROLLER: get_user_by_id llamado con ID: {user_id}")
         print(f"🔐 CONTROLLER: requesting_user_id: {current_user.id}")
-        
-        return await self.get_user_by_id_use_case.execute(user_id, current_user.id)
 
-    async def get_current_user_profile(self, current_user):
+        user = await self.get_user_by_id_use_case.execute(user_id, current_user.id)
+        print(f"✅ CONTROLLER: Usuario encontrado: {user.id} - {user.email}")
+        
+        # 🔧 FIX: Convertir entidad a diccionario usando mapper
+        return self.user_mapper.create_user_detail_response(user)
+
+    async def get_current_user_profile(self, current_user) -> dict:
         """
         Obtiene el perfil del usuario autenticado.
         
@@ -61,11 +85,12 @@ class UserController:
             current_user: Usuario autenticado
             
         Returns:
-            Entidad User del usuario autenticado
+            Diccionario con perfil del usuario
         """
-        return await self.get_user_by_id_use_case.execute_own_profile(current_user.id)
+        user = await self.get_user_by_id_use_case.execute_own_profile(current_user.id)
+        return self.user_mapper.create_profile_response(user)
 
-    async def list_users(self, query: UserQueryRequest, current_user):
+    async def list_users(self, query: UserQueryRequest, current_user) -> dict:
         """
         Lista usuarios con paginación.
         
@@ -81,10 +106,9 @@ class UserController:
             skip=query.skip,
             limit=query.limit
         )
-        from app.interfaces.schemas.user_response import users_to_list_response
-        return users_to_list_response(users, total, query.skip, query.limit)
+        return self.user_mapper.create_list_response(users, total, query.skip, query.limit)
 
-    async def update_user(self, user_id: str, request: UserUpdateRequest, current_user):
+    async def update_user(self, user_id: str, request: UserUpdateRequest, current_user) -> dict:
         """
         Actualiza un usuario existente.
         
@@ -102,9 +126,9 @@ class UserController:
             new_email=request.email,
             new_password=request.password
         )
-        return {"user": user, "message": "Usuario actualizado exitosamente"}
+        return self.user_mapper.create_update_response(user)
 
-    async def delete_user_soft(self, user_id: str, current_user):
+    async def delete_user_soft(self, user_id: str, current_user) -> dict:
         """
         Elimina un usuario (soft delete).
         
@@ -116,9 +140,9 @@ class UserController:
             Diccionario con confirmación de eliminación
         """
         user = await self.delete_user_use_case.execute_soft_delete(user_id, current_user.id)
-        return {"message": "Usuario desactivado exitosamente", "deleted_id": user.id}
+        return self.user_mapper.create_delete_response(user, "Usuario desactivado exitosamente")
 
-    async def delete_user_hard(self, user_id: str, current_user):
+    async def delete_user_hard(self, user_id: str, current_user) -> dict:
         """
         Elimina un usuario permanentemente (hard delete).
         
@@ -132,7 +156,7 @@ class UserController:
         deleted_id = await self.delete_user_use_case.execute_hard_delete(user_id, current_user.id)
         return {"message": "Usuario eliminado permanentemente", "deleted_id": deleted_id}
 
-    async def reactivate_user(self, user_id: str, current_user):
+    async def reactivate_user(self, user_id: str, current_user) -> dict:
         """
         Reactiva un usuario desactivado.
         
@@ -144,7 +168,7 @@ class UserController:
             Diccionario con información del usuario reactivado
         """
         user = await self.delete_user_use_case.reactivate_user(user_id, current_user.id)
-        return {"user": user, "message": "Usuario reactivado exitosamente"}
+        return self.user_mapper.create_update_response(user, "Usuario reactivado exitosamente")
 
 # Instancia global
 user_controller = UserController()

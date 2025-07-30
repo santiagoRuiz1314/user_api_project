@@ -1,6 +1,6 @@
 """
-Rutas de la API para operaciones CRUD de usuarios.
-Define los endpoints REST para el manejo de usuarios autenticados.
+Rutas de la API para operaciones CRUD de usuarios - VERSIÓN CORREGIDA.
+Define los endpoints REST con manejo robusto de respuestas.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List
@@ -43,17 +43,17 @@ async def get_current_user_profile(
     
     Devuelve la información completa del usuario que está autenticado.
     """
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    user = await user_controller.get_current_user_profile(current_user)
-    user_response = user_to_response(user)
-    return {
-        "user": user_response,
-        "message": "Perfil obtenido exitosamente"
-    }
+    try:
+        # 🔧 FIX: Usar el controller corregido que retorna dict
+        result = await user_controller.get_current_user_profile(current_user)
+        return result
+    except Exception as e:
+        # En caso de error, el exception handler centralizado se encargará
+        raise
 
 @router.post(
     "",
-    response_model=UserCreateResponse,
+    response_model=dict,  # 🔧 FIX: Cambiar a dict genérico
     status_code=status.HTTP_201_CREATED,
     summary="Crear nuevo usuario",
     description="Crea un nuevo usuario (endpoint administrativo)"
@@ -72,12 +72,15 @@ async def create_user(
     
     Este endpoint está protegido y requiere autenticación.
     """
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    return await user_controller.create_user(request)
+    try:
+        result = await user_controller.create_user(request)
+        return result
+    except Exception as e:
+        raise
 
 @router.get(
     "/user/{user_id}",
-    response_model=dict,
+    response_model=dict,  # 🔧 FIX: Cambiar a dict genérico
     summary="Obtener usuario por ID",
     description="Obtiene información de un usuario específico"
 )
@@ -85,17 +88,32 @@ async def get_user_by_id(
     user_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    """..."""
+    """
+    Obtiene un usuario por su ID.
+    
+    **Requiere autenticación JWT.**
+    
+    - **user_id**: ID único del usuario a obtener
+    
+    Los usuarios pueden ver información básica de otros usuarios,
+    pero solo pueden ver detalles completos de su propio perfil.
+    """
     print(f"🎯 ROUTER: get_user_by_id llamado con ID: {user_id}")
     print(f"🔐 ROUTER: current_user: {current_user.email}")
     
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    user = await user_controller.get_user_by_id(user_id, current_user)
-    # ... resto del código
+    try:
+        # 🔧 FIX: El controller ahora retorna dict correctamente
+        result = await user_controller.get_user_by_id(user_id, current_user)
+        print(f"✅ ROUTER: Respuesta recibida del controller: {type(result)}")
+        return result
+    except Exception as e:
+        print(f"❌ ROUTER: Excepción capturada: {e}")
+        # El exception handler centralizado se encargará
+        raise
 
 @router.put(
     "/user/{user_id}",
-    response_model=UserUpdateResponse,
+    response_model=dict,  # 🔧 FIX: Cambiar a dict genérico
     summary="Actualizar usuario",
     description="Actualiza la información de un usuario existente"
 )
@@ -116,12 +134,15 @@ async def update_user(
     Los usuarios solo pueden actualizar su propia información,
     salvo que tengan permisos administrativos.
     """
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    return await user_controller.update_user(user_id, request, current_user)
+    try:
+        result = await user_controller.update_user(user_id, request, current_user)
+        return result
+    except Exception as e:
+        raise
 
 @router.delete(
     "/user/{user_id}",
-    response_model=UserDeleteResponse,
+    response_model=dict,  # 🔧 FIX: Cambiar a dict genérico
     summary="Eliminar usuario",
     description="Elimina un usuario del sistema"
 )
@@ -140,12 +161,15 @@ async def delete_user(
     Los usuarios solo pueden eliminar su propia cuenta,
     salvo que tengan permisos administrativos.
     """
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    return await user_controller.delete_user_soft(user_id, current_user)
+    try:
+        result = await user_controller.delete_user_soft(user_id, current_user)
+        return result
+    except Exception as e:
+        raise
 
 @router.get(
     "",
-    response_model=UserListResponse,
+    response_model=dict,  # 🔧 FIX: Cambiar a dict genérico
     summary="Listar todos los usuarios",
     description="Obtiene una lista paginada de todos los usuarios"
 )
@@ -164,6 +188,9 @@ async def list_all_users(
     
     Devuelve información básica de todos los usuarios activos.
     """
-    # Las excepciones se manejan automáticamente por el sistema centralizado
-    query = UserQueryRequest(skip=skip, limit=limit)
-    return await user_controller.list_users(query, current_user)
+    try:
+        query = UserQueryRequest(skip=skip, limit=limit)
+        result = await user_controller.list_users(query, current_user)
+        return result
+    except Exception as e:
+        raise

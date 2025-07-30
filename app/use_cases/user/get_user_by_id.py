@@ -1,5 +1,5 @@
 """
-Caso de uso: Obtener Usuario por ID.
+Caso de uso: Obtener Usuario por ID - VERSIÓN CORREGIDA.
 Encapsula la lógica de negocio para obtener un usuario específico.
 """
 from typing import Optional
@@ -11,11 +11,15 @@ from app.core.exceptions import (
     AuthorizationException,
     UserInactiveException
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 class GetUserByIdUseCase:
     """
     Caso de uso para obtener un usuario por su ID.
     Incluye validaciones de negocio y permisos apropiados.
+    VERSIÓN MEJORADA con mejor manejo de errores.
     """
     
     def __init__(self):
@@ -23,7 +27,7 @@ class GetUserByIdUseCase:
     
     async def execute(self, user_id: str, requesting_user_id: str) -> User:
         """
-            Ejecuta el caso de uso de obtener usuario por ID.
+        Ejecuta el caso de uso de obtener usuario por ID.
         
         Args:
             user_id: ID del usuario a obtener
@@ -36,55 +40,136 @@ class GetUserByIdUseCase:
             ValidationException: Si hay errores de validación
             UserNotFoundException: Si el usuario no existe
             UserInactiveException: Si el usuario está inactivo
+            AuthorizationException: Si no tiene permisos
         """
-        print(f"🎯 USE CASE: execute llamado con user_id: {user_id}")
-        print(f"🎯 USE CASE: requesting_user_id: {requesting_user_id}")
+        logger.info(f"🎯 USE CASE: execute llamado con user_id: {user_id}")
+        logger.info(f"🎯 USE CASE: requesting_user_id: {requesting_user_id}")
 
+        try:
             # 🔧 SANITIZAR EL USER_ID
-        import urllib.parse
-        user_id = urllib.parse.unquote(user_id)  # Decodificar URL
-        user_id = user_id.strip("\"'")  # Remover comillas
-        print(f"🧹 USE CASE: user_id sanitizado: {user_id}")
+            user_id = self._sanitize_user_id(user_id)
+            logger.info(f"🧹 USE CASE: user_id sanitizado: {user_id}")
 
-         # Validaciones básicas
+            # Validaciones básicas
+            self._validate_input(user_id, requesting_user_id)
+            logger.info(f"✅ USE CASE: Validaciones básicas pasadas")
+            
+            # Verificar que el usuario solicitante existe y está activo
+            requesting_user = await self._validate_requesting_user(requesting_user_id)
+            logger.info(f"✅ USE CASE: Usuario solicitante válido")
+            
+            # Buscar el usuario solicitado
+            user = await self._get_target_user(user_id)
+            logger.info(f"✅ USE CASE: Usuario encontrado y activo, retornando")
+            
+            return user
+            
+        except (ValidationException, UserNotFoundException, UserInactiveException, AuthorizationException) as e:
+            # Re-lanzar excepciones de dominio
+            logger.warning(f"⚠️ USE CASE: Excepción de dominio: {e}")
+            raise
+        except Exception as e:
+            # Capturar cualquier otra excepción y convertirla
+            logger.error(f"❌ USE CASE: Error inesperado: {e}")
+            raise ValidationException(f"Error interno al obtener usuario: {str(e)}")
+    
+    def _sanitize_user_id(self, user_id: str) -> str:
+        """
+        Sanitiza el user_id recibido.
+        
+        Args:
+            user_id: ID sin sanitizar
+            
+        Returns:
+            ID sanitizado
+        """
+        if not user_id:
+            return user_id
+            
+        import urllib.parse
+        # Decodificar URL
+        sanitized = urllib.parse.unquote(user_id)
+        # Remover comillas
+        sanitized = sanitized.strip("\"'")
+        # Remover espacios
+        sanitized = sanitized.strip()
+        
+        return sanitized
+    
+    def _validate_input(self, user_id: str, requesting_user_id: str) -> None:
+        """
+        Valida los parámetros de entrada.
+        
+        Args:
+            user_id: ID del usuario a obtener
+            requesting_user_id: ID del usuario solicitante
+            
+        Raises:
+            ValidationException: Si hay errores de validación
+        """
         if not user_id or not user_id.strip():
-            print(f"❌ USE CASE: user_id vacío")
+            logger.error(f"❌ USE CASE: user_id vacío")
             raise ValidationException("User ID es requerido", "user_id")
         
         if not requesting_user_id or not requesting_user_id.strip():
-            print(f"❌ USE CASE: requesting_user_id vacío")
+            logger.error(f"❌ USE CASE: requesting_user_id vacío")
             raise ValidationException("Requesting user ID es requerido", "requesting_user_id")
+    
+    async def _validate_requesting_user(self, requesting_user_id: str) -> User:
+        """
+        Valida que el usuario solicitante existe y está activo.
         
-        print(f"✅ USE CASE: Validaciones básicas pasadas")
+        Args:
+            requesting_user_id: ID del usuario solicitante
+            
+        Returns:
+            Entidad User del solicitante
+            
+        Raises:
+            AuthorizationException: Si el usuario no existe
+            UserInactiveException: Si el usuario está inactivo
+        """
+        logger.info(f"🔍 USE CASE: Verificando usuario solicitante: {requesting_user_id}")
         
-        # Verificar que el usuario solicitante existe y está activo
-        print(f"🔍 USE CASE: Verificando usuario solicitante: {requesting_user_id}")
         requesting_user = await self.user_model.get_by_id(requesting_user_id)
         if not requesting_user:
-            print(f"❌ USE CASE: Usuario solicitante no encontrado")
+            logger.error(f"❌ USE CASE: Usuario solicitante no encontrado")
             raise AuthorizationException("Usuario solicitante no encontrado")
         
         if not requesting_user.is_active:
-            print(f"❌ USE CASE: Usuario solicitante inactivo")
+            logger.error(f"❌ USE CASE: Usuario solicitante inactivo")
             raise UserInactiveException(requesting_user_id)
         
-        print(f"✅ USE CASE: Usuario solicitante válido")
+        return requesting_user
+    
+    async def _get_target_user(self, user_id: str) -> User:
+        """
+        Obtiene el usuario objetivo y valida que esté activo.
         
-        # Buscar el usuario solicitado
-        print(f"🔍 USE CASE: Llamando a user_model.get_by_id({user_id})")
+        Args:
+            user_id: ID del usuario objetivo
+            
+        Returns:
+            Entidad User del usuario objetivo
+            
+        Raises:
+            UserNotFoundException: Si el usuario no existe o está inactivo
+        """
+        logger.info(f"🔍 USE CASE: Llamando a user_model.get_by_id({user_id})")
+        
         user = await self.user_model.get_by_id(user_id)
-        print(f"🔍 USE CASE: user_model.get_by_id() retornó: {user}")
+        logger.info(f"🔍 USE CASE: user_model.get_by_id() retornó: {user}")
         
         if not user:
-            print(f"❌ USE CASE: Usuario no encontrado en base de datos")
+            logger.error(f"❌ USE CASE: Usuario no encontrado en base de datos")
             raise UserNotFoundException(user_id)
         
         # Verificar que el usuario solicitado esté activo
         if not user.is_active:
-            print(f"❌ USE CASE: Usuario encontrado pero inactivo")
-            raise UserNotFoundException(user_id)  # Por seguridad, no revelamos que existe pero está inactivo
+            logger.error(f"❌ USE CASE: Usuario encontrado pero inactivo")
+            # Por seguridad, no revelamos que existe pero está inactivo
+            raise UserNotFoundException(user_id)
         
-        print(f"✅ USE CASE: Usuario encontrado y activo, retornando")
         return user
     
     async def execute_own_profile(self, user_id: str) -> User:
@@ -103,17 +188,30 @@ class GetUserByIdUseCase:
             UserNotFoundException: Si el usuario no existe
             UserInactiveException: Si el usuario está inactivo
         """
-        if not user_id or not user_id.strip():
-            raise ValidationException("User ID es requerido", "user_id")
+        logger.info(f"🔍 USE CASE: execute_own_profile para user_id: {user_id}")
         
-        user = await self.user_model.get_by_id(user_id)
-        if not user:
-            raise UserNotFoundException(user_id)
-        
-        if not user.is_active:
-            raise UserInactiveException(user_id)
-        
-        return user
+        try:
+            user_id = self._sanitize_user_id(user_id)
+            
+            if not user_id or not user_id.strip():
+                raise ValidationException("User ID es requerido", "user_id")
+            
+            user = await self.user_model.get_by_id(user_id)
+            if not user:
+                raise UserNotFoundException(user_id)
+            
+            if not user.is_active:
+                raise UserInactiveException(user_id)
+            
+            logger.info(f"✅ USE CASE: Perfil propio obtenido exitosamente")
+            return user
+            
+        except (ValidationException, UserNotFoundException, UserInactiveException) as e:
+            logger.warning(f"⚠️ USE CASE: Excepción en execute_own_profile: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ USE CASE: Error inesperado en execute_own_profile: {e}")
+            raise ValidationException(f"Error interno al obtener perfil: {str(e)}")
     
     async def execute_by_admin(self, user_id: str) -> User:
         """
@@ -130,14 +228,27 @@ class GetUserByIdUseCase:
             ValidationException: Si hay errores de validación
             UserNotFoundException: Si el usuario no existe
         """
-        if not user_id or not user_id.strip():
-            raise ValidationException("User ID es requerido", "user_id")
+        logger.info(f"🔍 USE CASE: execute_by_admin para user_id: {user_id}")
         
-        user = await self.user_model.get_by_id(user_id)
-        if not user:
-            raise UserNotFoundException(user_id)
-        
-        return user
+        try:
+            user_id = self._sanitize_user_id(user_id)
+            
+            if not user_id or not user_id.strip():
+                raise ValidationException("User ID es requerido", "user_id")
+            
+            user = await self.user_model.get_by_id(user_id)
+            if not user:
+                raise UserNotFoundException(user_id)
+            
+            logger.info(f"✅ USE CASE: Usuario obtenido por admin exitosamente")
+            return user
+            
+        except (ValidationException, UserNotFoundException) as e:
+            logger.warning(f"⚠️ USE CASE: Excepción en execute_by_admin: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"❌ USE CASE: Error inesperado en execute_by_admin: {e}")
+            raise ValidationException(f"Error interno al obtener usuario: {str(e)}")
 
 # Instancia del caso de uso
 get_user_by_id_use_case = GetUserByIdUseCase()
